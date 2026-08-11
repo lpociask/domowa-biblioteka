@@ -1,0 +1,30 @@
+# macOS / Xcode
+.DS_Store
+DerivedData/
+*.xcuserstate
+*.xccheckout
+*.moved-aside
+*.xcscmblueprint
+xcuserdata/
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+# Swift Package Manager
+.build/
+.swiftpm/
+Package.resolved
+
+# Web tooling and local servers
+node_modules/
+.cache/
+
+# Private collection exports — never commit household inventory
+collection.private.json
+*.private.collection.json
+exports/
+
+# Editor files
+.idea/
+.vscode/
+*.swp

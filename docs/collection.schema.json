@@ -1,0 +1,208 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/domowa-biblioteka/collection.schema.json",
+  "title": "Domowa Biblioteka collection export",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "exportedAt",
+    "collection",
+    "locations",
+    "publications",
+    "ownedItems"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": 1
+    },
+    "exportedAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "collection": {
+      "$ref": "#/$defs/collection"
+    },
+    "locations": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/location"
+      }
+    },
+    "publications": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/publication"
+      }
+    },
+    "ownedItems": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/ownedItem"
+      }
+    }
+  },
+  "additionalProperties": true,
+  "$defs": {
+    "collection": {
+      "type": "object",
+      "required": ["id", "name"],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "additionalProperties": true
+    },
+    "location": {
+      "type": "object",
+      "required": ["id", "name", "type"],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "type": {
+          "type": "string",
+          "enum": ["home", "room", "bookcase", "shelf", "box", "other"]
+        },
+        "parentId": {
+          "type": ["string", "null"]
+        }
+      },
+      "additionalProperties": true
+    },
+    "identifiers": {
+      "type": "object",
+      "properties": {
+        "isbn13": {
+          "type": ["string", "null"]
+        },
+        "issn": {
+          "type": ["string", "null"]
+        },
+        "ean": {
+          "type": ["string", "null"]
+        },
+        "barcode": {
+          "type": ["string", "null"]
+        }
+      },
+      "additionalProperties": true
+    },
+    "issue": {
+      "type": ["object", "null"],
+      "properties": {
+        "number": {
+          "type": ["string", "null"]
+        },
+        "volume": {
+          "type": ["string", "null"]
+        },
+        "date": {
+          "type": ["string", "null"]
+        }
+      },
+      "additionalProperties": true
+    },
+    "publication": {
+      "type": "object",
+      "required": ["id", "type", "title", "authors", "identifiers", "createdAt", "updatedAt"],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string",
+          "enum": ["book", "periodical"]
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1
+        },
+        "subtitle": {
+          "type": ["string", "null"]
+        },
+        "authors": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "language": {
+          "type": ["string", "null"]
+        },
+        "publisher": {
+          "type": ["string", "null"]
+        },
+        "publicationYear": {
+          "type": ["integer", "null"],
+          "minimum": 1,
+          "maximum": 9999
+        },
+        "identifiers": {
+          "$ref": "#/$defs/identifiers"
+        },
+        "issue": {
+          "$ref": "#/$defs/issue"
+        },
+        "metadata": {
+          "type": ["object", "null"],
+          "additionalProperties": true
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "additionalProperties": true
+    },
+    "ownedItem": {
+      "type": "object",
+      "required": ["id", "publicationId", "locationPath", "status", "addedAt", "updatedAt"],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "publicationId": {
+          "type": "string"
+        },
+        "locationId": {
+          "type": ["string", "null"]
+        },
+        "locationPath": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "status": {
+          "type": "string",
+          "enum": ["owned", "loaned", "missing", "archived"]
+        },
+        "notes": {
+          "type": ["string", "null"]
+        },
+        "addedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "additionalProperties": true
+    }
+  }
+}
