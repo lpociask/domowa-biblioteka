@@ -85,4 +85,35 @@ final class ScannerCodeValidatorTests: XCTestCase {
             .rejected(ScannerCodeValidator.emptyMessage)
         )
     }
+
+    func testRepeatGateSuppressesImmediateSameCodeUntilItLeavesFrame() {
+        let start = Date(timeIntervalSince1970: 100)
+        var gate = ScannerRepeatGate(
+            suppressedCode: "9780306406157",
+            now: start,
+            graceInterval: 2
+        )
+
+        XCTAssertFalse(gate.shouldAccept("9780306406157", now: start.addingTimeInterval(0.1)))
+        gate.updateVisibleCodes(["9780306406157"])
+        XCTAssertFalse(gate.shouldAccept("9780306406157", now: start.addingTimeInterval(0.5)))
+
+        gate.updateVisibleCodes([])
+
+        XCTAssertTrue(gate.shouldAccept("9780306406157", now: start.addingTimeInterval(0.6)))
+        XCTAssertNil(gate.suppressedCode)
+    }
+
+    func testRepeatGateAllowsAnotherCodeAndExpiresWhenPreviousWasNotVisible() {
+        let start = Date(timeIntervalSince1970: 100)
+        var gate = ScannerRepeatGate(
+            suppressedCode: "9780306406157",
+            now: start,
+            graceInterval: 2
+        )
+
+        XCTAssertTrue(gate.shouldAccept("9791090636071", now: start.addingTimeInterval(0.1)))
+        XCTAssertTrue(gate.shouldAccept("9780306406157", now: start.addingTimeInterval(2)))
+        XCTAssertNil(gate.suppressedCode)
+    }
 }

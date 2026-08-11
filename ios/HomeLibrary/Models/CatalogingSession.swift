@@ -57,6 +57,20 @@ struct CatalogingSession: Equatable, Sendable {
         return saved
     }
 
+    /// Rolls back the session counters for the most recently saved item.
+    /// The caller remains responsible for deleting the persisted item itself.
+    /// The current shelf location is intentionally retained for the next save.
+    @discardableResult
+    mutating func undoLastSaved(itemID: UUID) -> Bool {
+        guard lastSaved?.itemID == itemID else {
+            return false
+        }
+
+        savedCount = max(0, savedCount - 1)
+        lastSaved = nil
+        return true
+    }
+
     mutating func reset() {
         self = CatalogingSession()
     }

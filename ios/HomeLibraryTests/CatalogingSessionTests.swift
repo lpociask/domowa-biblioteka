@@ -56,6 +56,49 @@ final class CatalogingSessionTests: XCTestCase {
         XCTAssertEqual(session.lastSaved?.itemID, secondID)
     }
 
+    func testUndoLastSavedDecrementsCountClearsLastSavedAndKeepsCurrentLocation() {
+        let itemID = UUID(uuidString: "00000000-0000-0000-0000-000000000011")!
+        var session = CatalogingSession(locationText: "Dom / Gabinet / Regał 2")
+        session.recordSaved(itemID: itemID, savedAt: Date(timeIntervalSince1970: 10))
+        session.updateLocationText("Dom / Gabinet / Regał 2 / Półka 4")
+
+        let canonicalLocationBeforeUndo = session.canonicalLocation
+        let locationTextBeforeUndo = session.locationText
+
+        XCTAssertTrue(session.undoLastSaved(itemID: itemID))
+        XCTAssertEqual(session.savedCount, 0)
+        XCTAssertNil(session.lastSaved)
+        XCTAssertEqual(session.canonicalLocation, canonicalLocationBeforeUndo)
+        XCTAssertEqual(session.locationText, locationTextBeforeUndo)
+    }
+
+    func testUndoLastSavedRejectsUnknownOrStaleItemWithoutChangingState() {
+        let firstID = UUID(uuidString: "00000000-0000-0000-0000-000000000021")!
+        let lastID = UUID(uuidString: "00000000-0000-0000-0000-000000000022")!
+        let unknownID = UUID(uuidString: "00000000-0000-0000-0000-000000000023")!
+        var session = CatalogingSession(locationText: "Dom / Półka 1")
+        session.recordSaved(itemID: firstID, savedAt: Date(timeIntervalSince1970: 10))
+        session.recordSaved(itemID: lastID, savedAt: Date(timeIntervalSince1970: 20))
+
+        let stateBeforeUndoAttempts = session
+
+        XCTAssertFalse(session.undoLastSaved(itemID: firstID))
+        XCTAssertEqual(session, stateBeforeUndoAttempts)
+        XCTAssertFalse(session.undoLastSaved(itemID: unknownID))
+        XCTAssertEqual(session, stateBeforeUndoAttempts)
+    }
+
+    func testUndoLastSavedCannotBeAppliedTwiceOrDropCountBelowZero() {
+        let itemID = UUID(uuidString: "00000000-0000-0000-0000-000000000031")!
+        var session = CatalogingSession(locationText: "Dom / Półka 1")
+        session.recordSaved(itemID: itemID, savedAt: Date(timeIntervalSince1970: 10))
+
+        XCTAssertTrue(session.undoLastSaved(itemID: itemID))
+        XCTAssertFalse(session.undoLastSaved(itemID: itemID))
+        XCTAssertEqual(session.savedCount, 0)
+        XCTAssertNil(session.lastSaved)
+    }
+
     func testResetClearsEntireSession() {
         var session = CatalogingSession(locationText: "Dom / Półka 1")
         session.recordSaved(itemID: UUID(), savedAt: Date(timeIntervalSince1970: 10))

@@ -5,6 +5,9 @@ import VisionKit
 
 struct ScannerStep: View {
     let currentLocation: String?
+    let recentSaveTitle: String?
+    let initiallySuppressedCode: String?
+    let onUndoRecentSave: (() -> Void)?
     let onCode: (_ value: String, _ cameFromCamera: Bool) -> Void
 
     @State private var manualCode = ""
@@ -15,10 +18,22 @@ struct ScannerStep: View {
 
     init(
         currentLocation: String? = nil,
+        recentSaveTitle: String? = nil,
+        initiallySuppressedCode: String? = nil,
+        onUndoRecentSave: (() -> Void)? = nil,
         onCode: @escaping (_ value: String, _ cameFromCamera: Bool) -> Void
     ) {
         let cleanLocation = currentLocation?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanRecentSaveTitle = recentSaveTitle?.trimmingCharacters(in: .whitespacesAndNewlines)
         self.currentLocation = cleanLocation?.isEmpty == false ? cleanLocation : nil
+        self.recentSaveTitle = cleanRecentSaveTitle?.isEmpty == false ? cleanRecentSaveTitle : nil
+        if let initiallySuppressedCode,
+           case .accepted(let normalizedCode) = ScannerCodeValidator.validate(initiallySuppressedCode) {
+            self.initiallySuppressedCode = normalizedCode
+        } else {
+            self.initiallySuppressedCode = nil
+        }
+        self.onUndoRecentSave = onUndoRecentSave
         self.onCode = onCode
     }
 
@@ -32,6 +47,7 @@ struct ScannerStep: View {
         ZStack {
             if cameraScannerAvailable {
                 DataScannerRepresentable(
+                    initiallySuppressedCode: initiallySuppressedCode,
                     onRecognized: { value in
                         validationMessage = nil
                         onCode(value, true)
@@ -156,6 +172,49 @@ struct ScannerStep: View {
 
     private var manualPanelContent: some View {
         VStack(alignment: .leading, spacing: LibrarySpacing.small) {
+            if let recentSaveTitle, let onUndoRecentSave {
+                HStack(alignment: .center, spacing: LibrarySpacing.small) {
+                    Image(systemName: "checkmark")
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(LibraryPalette.orangeText)
+                        .frame(width: 28, height: 28)
+                        .accessibilityHidden(true)
+
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("DODANO DO KOLEKCJI")
+                            .font(.caption2.weight(.bold))
+                            .tracking(1.35)
+                        Text(recentSaveTitle)
+                            .font(.system(.footnote, design: .serif, weight: .semibold))
+                            .foregroundStyle(LibraryPalette.mutedInk)
+                            .lineLimit(2)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+
+                    Spacer(minLength: LibrarySpacing.xSmall)
+
+                    Button("Cofnij", action: onUndoRecentSave)
+                        .font(.caption2.weight(.bold))
+                        .tracking(1.05)
+                        .foregroundStyle(LibraryPalette.orangeText)
+                        .frame(minWidth: 58, minHeight: 44)
+                        .contentShape(Rectangle())
+                        .accessibilityLabel("Cofnij dodanie \(recentSaveTitle)")
+                        .accessibilityIdentifier("scanner.undoLastSave")
+                }
+                .padding(.leading, LibrarySpacing.small)
+                .frame(maxWidth: .infinity, minHeight: 58, alignment: .leading)
+                .background(LibraryPalette.ink.opacity(0.045))
+                .overlay(alignment: .leading) {
+                    Rectangle()
+                        .fill(LibraryPalette.orange)
+                        .frame(width: 4)
+                }
+                .overlay(alignment: .bottom) {
+                    Rectangle().fill(LibraryPalette.rule).frame(height: 1)
+                }
+            }
+
             if let currentLocation {
                 HStack(alignment: .top, spacing: LibrarySpacing.small) {
                     Image(systemName: "mappin")
@@ -400,12 +459,14 @@ enum ScannerCodeValidator {
 }
 
 private struct DataScannerRepresentable: UIViewControllerRepresentable {
+    let initiallySuppressedCode: String?
     let onRecognized: (String) -> Void
     let onRejected: (String) -> Void
     let onUnavailable: () -> Void
 
     func makeCoordinator() -> Coordinator {
         Coordinator(
+            initiallySuppressedCode: initiallySuppressedCode,
             onRecognized: onRecognized,
             onRejected: onRejected,
             onUnavailable: onUnavailable
@@ -448,8 +509,10 @@ private struct DataScannerRepresentable: UIViewControllerRepresentable {
         private let onRejected: (String) -> Void
         private let onUnavailable: () -> Void
         private var lastRejectedValue: String?
+        private var repeatGate: ScannerRepeatGate
 
         init(
+            initiallySuppressedCode: String?,
             onRecognized: @escaping (String) -> Void,
             onRejected: @escaping (String) -> Void,
             onUnavailable: @escaping () -> Void
@@ -457,6 +520,7 @@ private struct DataScannerRepresentable: UIViewControllerRepresentable {
             self.onRecognized = onRecognized
             self.onRejected = onRejected
             self.onUnavailable = onUnavailable
+            repeatGate = ScannerRepeatGate(suppressedCode: initiallySuppressedCode)
         }
 
         func dataScanner(
@@ -476,6 +540,7 @@ private struct DataScannerRepresentable: UIViewControllerRepresentable {
                     : .ean13
                 switch ScannerCodeValidator.validate(value, source: inputSource) {
                 case .accepted(let normalizedValue):
+                    guard repeatGate.shouldAccept(normalizedValue) else { continue }
                     dataScanner.stopScanning()
                     UINotificationFeedbackGenerator().notificationOccurred(.success)
                     onRecognized(normalizedValue)
@@ -490,6 +555,15 @@ private struct DataScannerRepresentable: UIViewControllerRepresentable {
 
         func dataScanner(
             _ dataScanner: DataScannerViewController,
+            didRemove removedItems: [RecognizedItem],
+            allItems: [RecognizedItem]
+        ) {
+            let visibleCodes = allItems.compactMap(Self.normalizedPublicationCode)
+            repeatGate.updateVisibleCodes(visibleCodes)
+        }
+
+        func dataScanner(
+            _ dataScanner: DataScannerViewController,
             becameUnavailableWithError error: DataScannerViewController.ScanningUnavailable
         ) {
             reportUnavailable()
@@ -498,5 +572,62 @@ private struct DataScannerRepresentable: UIViewControllerRepresentable {
         func reportUnavailable() {
             onUnavailable()
         }
+
+        private static func normalizedPublicationCode(from item: RecognizedItem) -> String? {
+            guard case .barcode(let barcode) = item,
+                  let value = barcode.payloadStringValue?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !value.isEmpty else {
+                return nil
+            }
+
+            let inputSource: ScannerCodeInputSource = barcode.observation.symbology == .qr
+                ? .qr
+                : .ean13
+            guard case .accepted(let normalizedValue) = ScannerCodeValidator.validate(
+                value,
+                source: inputSource
+            ) else {
+                return nil
+            }
+            return normalizedValue
+        }
+    }
+}
+
+struct ScannerRepeatGate {
+    private(set) var suppressedCode: String?
+    private let suppressionExpiresAt: Date
+    private var hasObservedSuppressedCode = false
+
+    init(
+        suppressedCode: String?,
+        now: Date = .now,
+        graceInterval: TimeInterval = 1.25
+    ) {
+        self.suppressedCode = suppressedCode
+        suppressionExpiresAt = now.addingTimeInterval(graceInterval)
+    }
+
+    mutating func shouldAccept(_ code: String, now: Date = .now) -> Bool {
+        guard let suppressedCode, code == suppressedCode else {
+            return true
+        }
+
+        guard now < suppressionExpiresAt else {
+            self.suppressedCode = nil
+            return true
+        }
+
+        hasObservedSuppressedCode = true
+        return false
+    }
+
+    mutating func updateVisibleCodes(_ codes: [String]) {
+        guard hasObservedSuppressedCode,
+              let suppressedCode,
+              !codes.contains(suppressedCode) else {
+            return
+        }
+        self.suppressedCode = nil
     }
 }

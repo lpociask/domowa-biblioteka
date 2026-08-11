@@ -1,5 +1,6 @@
 import SwiftData
 import SwiftUI
+import UIKit
 
 struct AddItemFlow: View {
     private enum Step {
@@ -23,6 +24,12 @@ struct AddItemFlow: View {
         let publisher: String
         let publicationYear: String
         let language: String
+    }
+
+    private struct RecentSaveNotice: Equatable {
+        let itemID: UUID
+        let title: String
+        let suppressedCode: String?
     }
 
     @Environment(\.dismiss) private var dismiss
@@ -57,6 +64,8 @@ struct AddItemFlow: View {
     @State private var savedCopyCount = 1
     @State private var savedUsedExistingPublication = false
     @State private var isSaving = false
+    @State private var recentSaveNotice: RecentSaveNotice?
+    @State private var serialModeEnabled: Bool
 
     private let metadataProvider: any BookMetadataProviding
 
@@ -65,6 +74,7 @@ struct AddItemFlow: View {
         metadataProvider: any BookMetadataProviding = CascadingBookMetadataProvider()
     ) {
         _step = State(initialValue: startWithScanner ? .scanner : .form)
+        _serialModeEnabled = State(initialValue: startWithScanner)
         self.metadataProvider = metadataProvider
     }
 
@@ -112,7 +122,13 @@ struct AddItemFlow: View {
     }
 
     private var scanner: some View {
-        ScannerStep(currentLocation: currentLocationDisplay) { value, cameFromCamera in
+        ScannerStep(
+            currentLocation: currentLocationDisplay,
+            recentSaveTitle: recentSaveNotice?.title,
+            initiallySuppressedCode: recentSaveNotice?.suppressedCode,
+            onUndoRecentSave: recentSaveNotice == nil ? nil : undoRecentSave
+        ) { value, cameFromCamera in
+            isSaving = false
             let scannedISBN = apply(identifier: value)
             metadataSource = cameFromCamera ? "scan" : "manual"
             step = .form
@@ -688,6 +704,34 @@ struct AddItemFlow: View {
         match.kind == .possibleRepeatScan ? "Możliwy ponowny skan" : "Kolejny egzemplarz"
     }
 
+    private func undoRecentSave() {
+        guard let recentSaveNotice else { return }
+
+        do {
+            let result = try CatalogingUndoService.undo(
+                itemID: recentSaveNotice.itemID,
+                in: modelContext
+            )
+
+            if result.didUndo {
+                _ = catalogingSession.undoLastSaved(itemID: recentSaveNotice.itemID)
+                UINotificationFeedbackGenerator().notificationOccurred(.success)
+                UIAccessibility.post(
+                    notification: .announcement,
+                    argument: "Cofnięto dodanie: \(recentSaveNotice.title)."
+                )
+            } else {
+                UIAccessibility.post(
+                    notification: .announcement,
+                    argument: "Ostatniego wpisu nie ma już w kolekcji."
+                )
+            }
+            self.recentSaveNotice = nil
+        } catch {
+            validationMessage = "Nie udało się cofnąć ostatniego dodania: \(error.localizedDescription)"
+        }
+    }
+
     private func startRescan() {
         clearPublicationFields(preserveCopyFields: true)
         step = .scanner
@@ -695,6 +739,7 @@ struct AddItemFlow: View {
 
     private func prepareNextPublication(startWithScanner: Bool) {
         isSaving = false
+        serialModeEnabled = startWithScanner
         clearPublicationFields(preserveCopyFields: false)
         step = startWithScanner ? .scanner : .form
     }
@@ -935,7 +980,24 @@ struct AddItemFlow: View {
             savedLocation = catalogingSession.canonicalLocation.canonical
             savedCopyCount = result.copyCount
             savedUsedExistingPublication = result.usedExisting
-            step = .saved
+
+            if serialModeEnabled {
+                let scannedCode = barcode.trimmingCharacters(in: .whitespacesAndNewlines)
+                recentSaveNotice = RecentSaveNotice(
+                    itemID: result.item.id,
+                    title: result.publication.title,
+                    suppressedCode: scannedCode.isEmpty ? nil : scannedCode
+                )
+                clearPublicationFields(preserveCopyFields: false)
+                step = .scanner
+                UINotificationFeedbackGenerator().notificationOccurred(.success)
+                UIAccessibility.post(
+                    notification: .announcement,
+                    argument: "Dodano do kolekcji: \(result.publication.title). Możesz skanować następną publikację."
+                )
+            } else {
+                step = .saved
+            }
         } catch {
             isSaving = false
             validationMessage = "Nie udało się zapisać publikacji: \(error.localizedDescription)"
