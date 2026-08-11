@@ -91,4 +91,33 @@ final class CollectionExporterTests: XCTestCase {
         XCTAssertEqual(payload.ownedItems.first?.locationPath, [])
         XCTAssertNil(payload.ownedItems.first?.locationId)
     }
+
+    func testPreservesExternalIDsAndCatalogAuthorNames() {
+        let publication = Publication(
+            externalID: "pub-from-web",
+            type: .book,
+            title: "Test",
+            authorsText: "Sacher-Masoch, Leopold von; Nowak, Anna"
+        )
+        let item = OwnedItem(
+            externalID: "copy-from-web",
+            publication: publication,
+            locationPathText: ""
+        )
+
+        let payload = CollectionExporter.makeExport(
+            items: [item],
+            collectionID: "collection-from-web",
+            collectionName: "Test"
+        )
+
+        XCTAssertEqual(payload.publications.first?.id, "pub-from-web")
+        XCTAssertEqual(payload.collection.id, "collection-from-web")
+        XCTAssertEqual(
+            payload.publications.first?.authors,
+            ["Sacher-Masoch, Leopold von", "Nowak, Anna"]
+        )
+        XCTAssertEqual(payload.ownedItems.first?.id, "copy-from-web")
+        XCTAssertEqual(payload.ownedItems.first?.publicationId, "pub-from-web")
+    }
 }

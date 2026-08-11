@@ -7,6 +7,23 @@ struct AddItemFlow: View {
         case form
     }
 
+    private enum MetadataLookupState: Equatable {
+        case idle
+        case loading
+        case enriched(BookMetadataSource)
+        case noMatch
+        case failed
+    }
+
+    private struct FormSnapshot {
+        let title: String
+        let subtitle: String
+        let authors: String
+        let publisher: String
+        let publicationYear: String
+        let language: String
+    }
+
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
 
@@ -29,9 +46,18 @@ struct AddItemFlow: View {
     @State private var notes = ""
     @State private var metadataSource = "manual"
     @State private var validationMessage: String?
+    @State private var metadataLookupState: MetadataLookupState = .idle
+    @State private var metadataLookupTask: Task<Void, Never>?
+    @State private var metadataLookupISBN: String?
 
-    init(startWithScanner: Bool) {
+    private let metadataProvider: any BookMetadataProviding
+
+    init(
+        startWithScanner: Bool,
+        metadataProvider: any BookMetadataProviding = CascadingBookMetadataProvider()
+    ) {
         _step = State(initialValue: startWithScanner ? .scanner : .form)
+        self.metadataProvider = metadataProvider
     }
 
     var body: some View {
@@ -39,9 +65,12 @@ struct AddItemFlow: View {
             switch step {
             case .scanner:
                 ScannerStep { value, cameFromCamera in
-                    apply(identifier: value)
+                    let scannedISBN = apply(identifier: value)
                     metadataSource = cameFromCamera ? "scan" : "manual"
                     step = .form
+                    if let scannedISBN {
+                        lookupMetadata(for: scannedISBN)
+                    }
                 }
                 .navigationTitle("Skanuj kod")
                 .navigationBarTitleDisplayMode(.inline)
@@ -53,7 +82,7 @@ struct AddItemFlow: View {
 
             case .form:
                 form
-                    .navigationTitle(metadataSource == "scan" ? "Sprawdź publikację" : "Nowa publikacja")
+                    .navigationTitle(metadataSource == "manual" ? "Nowa publikacja" : "Sprawdź publikację")
                     .navigationBarTitleDisplayMode(.inline)
                     .toolbar {
                         ToolbarItem(placement: .cancellationAction) {
@@ -68,6 +97,9 @@ struct AddItemFlow: View {
             }
         }
         .interactiveDismissDisabled(step == .form && hasEnteredData)
+        .onDisappear {
+            metadataLookupTask?.cancel()
+        }
         .alert("Sprawdź dane", isPresented: Binding(
             get: { validationMessage != nil },
             set: { if !$0 { validationMessage = nil } }
@@ -80,6 +112,8 @@ struct AddItemFlow: View {
 
     private var form: some View {
         Form {
+            metadataStatusSection
+
             Section("Rodzaj") {
                 Picker("Rodzaj publikacji", selection: $publicationType) {
                     ForEach(PublicationType.allCases) { type in
@@ -106,6 +140,18 @@ struct AddItemFlow: View {
             Section("Identyfikatory") {
                 TextField("ISBN-13", text: $isbn13)
                     .keyboardType(.numbersAndPunctuation)
+                    .onChange(of: isbn13) { _, newValue in
+                        handleISBNChange(newValue)
+                    }
+                Button {
+                    lookupMetadata(for: isbn13)
+                } label: {
+                    Label(
+                        metadataLookupState == .loading ? "Pobieranie danych…" : "Pobierz dane z katalogów",
+                        systemImage: "text.magnifyingglass"
+                    )
+                }
+                .disabled(normalizedISBN(isbn13) == nil || metadataLookupState == .loading)
                 if publicationType == .periodical {
                     TextField("ISSN", text: $issn)
                         .keyboardType(.numbersAndPunctuation)
@@ -143,25 +189,170 @@ struct AddItemFlow: View {
         }
     }
 
+    @ViewBuilder
+    private var metadataStatusSection: some View {
+        switch metadataLookupState {
+        case .idle:
+            EmptyView()
+        case .loading:
+            Section {
+                HStack(spacing: 12) {
+                    ProgressView()
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("Pobieram opis z katalogów bibliograficznych…")
+                        Text("Najpierw sprawdzam BN, a potem Open Library. Możesz już poprawiać dane ręcznie.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+        case .enriched(let source):
+            Section {
+                Label("Uzupełniono dostępne dane z \(source.displayName).", systemImage: "checkmark.circle.fill")
+                    .foregroundStyle(.green)
+            }
+        case .noMatch:
+            Section {
+                metadataFallbackMessage(
+                    "Nie znaleziono tego ISBN w BN ani Open Library. Możesz kontynuować ręcznie."
+                )
+            }
+        case .failed:
+            Section {
+                metadataFallbackMessage(
+                    "Nie udało się teraz pobrać danych. Możesz kontynuować ręcznie."
+                )
+            }
+        }
+    }
+
+    private func metadataFallbackMessage(_ message: String) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Label(message, systemImage: "info.circle")
+                .foregroundStyle(.secondary)
+            Button("Spróbuj ponownie") {
+                lookupMetadata(for: isbn13)
+            }
+            .disabled(isbn13.isEmpty)
+        }
+    }
+
     private var hasEnteredData: Bool {
         !title.isEmpty || !authors.isEmpty || !barcode.isEmpty || !locationPath.isEmpty
     }
 
-    private func apply(identifier rawValue: String) {
+    @discardableResult
+    private func apply(identifier rawValue: String) -> String? {
         let parsed = PublicationIdentifierParser.parse(rawValue)
         barcode = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
 
         switch parsed.kind {
         case .isbn10 where parsed.isValid,
              .isbn13 where parsed.isValid:
-            isbn13 = parsed.isbn13 ?? parsed.normalized
-            ean = parsed.isbn13 ?? ""
+            let normalizedISBN = parsed.isbn13 ?? parsed.normalized
+            isbn13 = normalizedISBN
+            ean = normalizedISBN
+            return normalizedISBN
         case .ean13 where parsed.isValid:
             ean = parsed.normalized
         case .upce:
             ean = parsed.normalized
         default:
             break
+        }
+        return nil
+    }
+
+    private func lookupMetadata(for isbn: String) {
+        metadataLookupTask?.cancel()
+        guard let requestedISBN = normalizedISBN(isbn) else {
+            metadataLookupISBN = nil
+            metadataLookupState = .failed
+            return
+        }
+        metadataLookupISBN = requestedISBN
+        metadataLookupState = .loading
+        let snapshot = FormSnapshot(
+            title: title,
+            subtitle: subtitle,
+            authors: authors,
+            publisher: publisher,
+            publicationYear: publicationYear,
+            language: language
+        )
+
+        metadataLookupTask = Task {
+            do {
+                let metadata = try await metadataProvider.lookup(isbn: requestedISBN)
+                try Task.checkCancellation()
+                guard metadataLookupISBN == requestedISBN,
+                      normalizedISBN(isbn13) == requestedISBN else {
+                    return
+                }
+                guard let metadata else {
+                    metadataLookupState = .noMatch
+                    return
+                }
+
+                apply(metadata: metadata, preservingChangesSince: snapshot)
+                metadataSource = metadata.source.rawValue
+                metadataLookupState = .enriched(metadata.source)
+            } catch is CancellationError {
+                return
+            } catch {
+                guard !Task.isCancelled,
+                      metadataLookupISBN == requestedISBN,
+                      normalizedISBN(isbn13) == requestedISBN else {
+                    return
+                }
+                metadataLookupState = .failed
+            }
+        }
+    }
+
+    private func handleISBNChange(_ value: String) {
+        guard let lookupISBN = metadataLookupISBN,
+              normalizedISBN(value) != lookupISBN else {
+            return
+        }
+
+        metadataLookupTask?.cancel()
+        metadataLookupTask = nil
+        metadataLookupISBN = nil
+        metadataLookupState = .idle
+        if metadataSource == BookMetadataSource.nationalLibrary.rawValue ||
+            metadataSource == BookMetadataSource.openLibrary.rawValue {
+            metadataSource = "manual"
+        }
+    }
+
+    private func normalizedISBN(_ value: String) -> String? {
+        let parsed = PublicationIdentifierParser.parse(value)
+        guard parsed.isValid,
+              parsed.kind == .isbn10 || parsed.kind == .isbn13 else {
+            return nil
+        }
+        return parsed.isbn13 ?? parsed.normalized
+    }
+
+    private func apply(metadata: BookMetadata, preservingChangesSince snapshot: FormSnapshot) {
+        if title == snapshot.title, let value = metadata.title {
+            title = value
+        }
+        if subtitle == snapshot.subtitle, let value = metadata.subtitle {
+            subtitle = value
+        }
+        if authors == snapshot.authors, !metadata.authors.isEmpty {
+            authors = metadata.authors.joined(separator: "; ")
+        }
+        if publisher == snapshot.publisher, let value = metadata.publisher {
+            publisher = value
+        }
+        if publicationYear == snapshot.publicationYear, let value = metadata.publicationYear {
+            publicationYear = String(value)
+        }
+        if language == snapshot.language, let value = metadata.language {
+            language = value
         }
     }
 

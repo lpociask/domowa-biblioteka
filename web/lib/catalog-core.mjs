@@ -8,6 +8,8 @@ export const ITEM_TYPES = Object.freeze({
 const ALLOWED_TYPES = new Set(Object.keys(ITEM_TYPES));
 const ALLOWED_STATUSES = new Set(["owned", "loaned", "missing", "archived"]);
 const ALLOWED_LOCATION_TYPES = new Set(["home", "room", "bookcase", "shelf", "box", "other"]);
+const ISO_8601_DATE_TIME =
+  /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d+))?(Z|([+-])(\d{2}):(\d{2}))$/;
 
 function asString(value, fallback = "") {
   if (value === null || value === undefined) return fallback;
@@ -18,6 +20,69 @@ function asOptionalNumber(value) {
   if (value === null || value === undefined || value === "") return null;
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : null;
+}
+
+function normalizedPublicationYear(value, field, strict) {
+  if (value === null || value === undefined || value === "") return null;
+  const candidate =
+    typeof value === "number"
+      ? value
+      : typeof value === "string" && /^\d{1,4}$/.test(value.trim())
+        ? Number(value.trim())
+        : Number.NaN;
+  if (Number.isInteger(candidate) && candidate >= 1 && candidate <= 9999) return candidate;
+  if (!strict) return null;
+  throw new TypeError(`Pole „${field}” musi być liczbą całkowitą od 1 do 9999.`);
+}
+
+function isLeapYear(year) {
+  return year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
+}
+
+function canonicalISODate(value) {
+  const text = asString(value);
+  const match = ISO_8601_DATE_TIME.exec(text);
+  if (!match) return null;
+
+  const [, rawYear, rawMonth, rawDay, rawHour, rawMinute, rawSecond, , zone, , rawZoneHour, rawZoneMinute] =
+    match;
+  const year = Number(rawYear);
+  const month = Number(rawMonth);
+  const day = Number(rawDay);
+  const hour = Number(rawHour);
+  const minute = Number(rawMinute);
+  const second = Number(rawSecond);
+  const zoneHour = zone === "Z" ? 0 : Number(rawZoneHour);
+  const zoneMinute = zone === "Z" ? 0 : Number(rawZoneMinute);
+  const daysInMonth = [31, isLeapYear(year) ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+
+  if (
+    year < 1 ||
+    year > 9999 ||
+    month < 1 ||
+    month > 12 ||
+    day < 1 ||
+    day > daysInMonth[month - 1] ||
+    hour > 23 ||
+    minute > 59 ||
+    second > 59 ||
+    zoneHour > 23 ||
+    zoneMinute > 59
+  ) {
+    return null;
+  }
+
+  const timestamp = Date.parse(text);
+  if (!Number.isFinite(timestamp)) return null;
+  const canonical = new Date(timestamp).toISOString();
+  return ISO_8601_DATE_TIME.test(canonical) ? canonical : null;
+}
+
+function normalizedISODate(value, field, strict, fallback) {
+  const normalized = canonicalISODate(value);
+  if (normalized) return normalized;
+  if (!strict) return fallback;
+  throw new TypeError(`Pole „${field}” musi zawierać prawidłową datę ISO 8601.`);
 }
 
 function asStringArray(value) {
@@ -54,13 +119,16 @@ function normalizeIdentifiers(raw, legacyEdition = {}) {
     : {};
 
   const clean = (value) => asString(value).replace(/[\s-]/g, "") || null;
+  const rawBarcode = asString(
+    identifiers.barcode || fromArray.barcode || legacyEdition.barcode,
+  );
   return {
     ...(identifiers || {}),
     isbn13: clean(identifiers.isbn13 || fromArray.isbn13 || legacyEdition.isbn13),
     isbn10: clean(identifiers.isbn10 || fromArray.isbn10 || legacyEdition.isbn10),
     issn: clean(identifiers.issn || fromArray.issn || legacyEdition.issn),
     ean: clean(identifiers.ean || fromArray.ean || legacyEdition.ean),
-    barcode: clean(identifiers.barcode || fromArray.barcode || legacyEdition.barcode),
+    barcode: rawBarcode || null,
   };
 }
 
@@ -77,8 +145,7 @@ function normalizeMetadata(raw = {}) {
   };
 }
 
-function normalizePublication(raw, index) {
-  const normalizedAt = new Date().toISOString();
+function normalizePublication(raw, index, { strict = true, fallbackAt = new Date().toISOString() } = {}) {
   const work = raw?.work && typeof raw.work === "object" ? raw.work : {};
   const edition = raw?.edition && typeof raw.edition === "object" ? raw.edition : {};
   const metadata = normalizeMetadata({
@@ -99,6 +166,19 @@ function normalizePublication(raw, index) {
     .map(([scheme, value]) => `${scheme}:${value}`)
     .join("|");
 
+  const createdAt = normalizedISODate(
+    raw?.createdAt,
+    `publications[${index}].createdAt`,
+    strict,
+    fallbackAt,
+  );
+  const updatedAt = normalizedISODate(
+    strict ? raw?.updatedAt : raw?.updatedAt ?? raw?.createdAt,
+    `publications[${index}].updatedAt`,
+    strict,
+    createdAt,
+  );
+
   return {
     id: asString(raw?.publicationId || raw?.id, stableId("pub", identifierSeed || `${title}-${index}`)),
     type: normalizedType(raw?.type || raw?.kind),
@@ -107,7 +187,11 @@ function normalizePublication(raw, index) {
     authors: asStringArray(raw?.authors?.length ? raw.authors : work.authors || raw?.author),
     language: asString(raw?.language || work.language) || null,
     publisher: asString(raw?.publisher || edition.publisher) || null,
-    publicationYear: asOptionalNumber(raw?.publicationYear ?? raw?.year ?? edition.publicationYear),
+    publicationYear: normalizedPublicationYear(
+      raw?.publicationYear ?? raw?.year ?? edition.publicationYear,
+      `publications[${index}].publicationYear`,
+      strict,
+    ),
     identifiers,
     issue:
       raw?.issue && typeof raw.issue === "object"
@@ -118,15 +202,31 @@ function normalizePublication(raw, index) {
           }
         : null,
     metadata,
-    createdAt: asString(raw?.createdAt) || normalizedAt,
-    updatedAt: asString(raw?.updatedAt || raw?.createdAt) || normalizedAt,
+    createdAt,
+    updatedAt,
   };
 }
 
-function normalizeOwnedItem(raw, index, fallbackPublicationId = null) {
-  const normalizedAt = new Date().toISOString();
+function normalizeOwnedItem(
+  raw,
+  index,
+  fallbackPublicationId = null,
+  { strict = true, fallbackAt = new Date().toISOString() } = {},
+) {
   const copy = raw?.copy && typeof raw.copy === "object" ? raw.copy : {};
   const publicationId = asString(raw?.publicationId || fallbackPublicationId);
+  const addedAt = normalizedISODate(
+    raw?.addedAt ?? copy.addedAt,
+    `ownedItems[${index}].addedAt`,
+    strict,
+    fallbackAt,
+  );
+  const updatedAt = normalizedISODate(
+    strict ? raw?.updatedAt ?? copy.updatedAt : raw?.updatedAt ?? copy.updatedAt ?? raw?.addedAt ?? copy.addedAt,
+    `ownedItems[${index}].updatedAt`,
+    strict,
+    addedAt,
+  );
   return {
     id: asString(raw?.ownedItemId || raw?.copyId || raw?.id, stableId("copy", `${publicationId}-${index}`)),
     publicationId,
@@ -136,9 +236,8 @@ function normalizeOwnedItem(raw, index, fallbackPublicationId = null) {
       ? asString(raw?.status || copy.status)
       : "owned",
     notes: asString(raw?.notes || copy.notes) || null,
-    addedAt: asString(raw?.addedAt || copy.addedAt) || normalizedAt,
-    updatedAt:
-      asString(raw?.updatedAt || copy.updatedAt || raw?.addedAt || copy.addedAt) || normalizedAt,
+    addedAt,
+    updatedAt,
   };
 }
 
@@ -154,17 +253,19 @@ function normalizeLocation(raw, index) {
   };
 }
 
-function normalizeLegacyItems(rawItems) {
+function normalizeLegacyItems(rawItems, fallbackAt) {
   const publicationsByKey = new Map();
   const ownedItems = [];
 
   rawItems.forEach((raw, index) => {
-    const publication = normalizePublication(raw, index);
+    const publication = normalizePublication(raw, index, { strict: false, fallbackAt });
     const key = publicationIdentity(publication);
     const existing = publicationsByKey.get(key);
     const publicationId = existing?.id || publication.id;
     if (!existing) publicationsByKey.set(key, publication);
-    ownedItems.push(normalizeOwnedItem(raw, index, publicationId));
+    ownedItems.push(
+      normalizeOwnedItem(raw, index, publicationId, { strict: false, fallbackAt }),
+    );
   });
 
   return { publications: [...publicationsByKey.values()], ownedItems };
@@ -181,14 +282,24 @@ export function normalizeCollection(input) {
 
   const rawLocations = Array.isArray(input.locations) ? input.locations : [];
   const locations = rawLocations.map(normalizeLocation);
+  const fallbackAt = new Date().toISOString();
   let publications;
   let ownedItems;
+  let strictCanonical = false;
 
   if (Array.isArray(input.publications) && Array.isArray(input.ownedItems)) {
-    publications = input.publications.map(normalizePublication);
-    ownedItems = input.ownedItems.map((item, index) => normalizeOwnedItem(item, index));
+    strictCanonical = true;
+    publications = input.publications.map((publication, index) =>
+      normalizePublication(publication, index, { strict: true, fallbackAt }),
+    );
+    ownedItems = input.ownedItems.map((item, index) =>
+      normalizeOwnedItem(item, index, null, { strict: true, fallbackAt }),
+    );
   } else if (Array.isArray(input.items) || Array.isArray(input)) {
-    ({ publications, ownedItems } = normalizeLegacyItems(Array.isArray(input) ? input : input.items));
+    ({ publications, ownedItems } = normalizeLegacyItems(
+      Array.isArray(input) ? input : input.items,
+      fallbackAt,
+    ));
   } else {
     throw new TypeError("Plik nie zawiera tablic „publications” i „ownedItems”.");
   }
@@ -201,7 +312,7 @@ export function normalizeCollection(input) {
 
   const validLocationIds = new Set(locations.map((location) => location.id));
   for (const item of ownedItems) {
-    if (item.locationId && !validLocationIds.has(item.locationId) && !item.locationPath.length) {
+    if (item.locationId && !validLocationIds.has(item.locationId)) {
       item.locationId = null;
     }
   }
@@ -210,7 +321,7 @@ export function normalizeCollection(input) {
   const name = asString(collection.name || input.name, "Moja kolekcja");
   return {
     schemaVersion: SCHEMA_VERSION,
-    exportedAt: asString(input.exportedAt) || new Date().toISOString(),
+    exportedAt: normalizedISODate(input.exportedAt, "exportedAt", strictCanonical, fallbackAt),
     collection: {
       id: asString(collection.id || input.collectionId, stableId("collection", name)),
       name,
@@ -348,14 +459,89 @@ function publicationIdentity(publication) {
   return `id:${publication.id}`;
 }
 
+function locationIdentity(parentId, name) {
+  return JSON.stringify([parentId || null, asString(name).toLocaleLowerCase("pl-PL")]);
+}
+
+function mergeLocations(currentLocations, incomingLocations) {
+  const locations = [];
+  const locationById = new Map();
+  const locationIdByIdentity = new Map();
+  const currentIdMap = new Map();
+  const incomingIdMap = new Map();
+
+  function availableId(preferredId, identity) {
+    const preferred = asString(preferredId);
+    if (preferred && !locationById.has(preferred)) return preferred;
+    const base = stableId("loc", identity);
+    if (!locationById.has(base)) return base;
+    let suffix = 2;
+    while (locationById.has(`${base}-${suffix}`)) suffix += 1;
+    return `${base}-${suffix}`;
+  }
+
+  function integrate(sourceLocations, idMap, fallbackMaps = []) {
+    const sourceById = new Map(sourceLocations.map((location) => [location.id, location]));
+    const resolving = new Set();
+
+    function canonicalIdFor(location) {
+      if (idMap.has(location.id)) return idMap.get(location.id);
+      if (resolving.has(location.id)) return null;
+      resolving.add(location.id);
+
+      let parentId = null;
+      if (location.parentId) {
+        const sourceParent = sourceById.get(location.parentId);
+        if (sourceParent) {
+          parentId = canonicalIdFor(sourceParent);
+        } else {
+          for (const fallbackMap of fallbackMaps) {
+            if (fallbackMap.has(location.parentId)) {
+              parentId = fallbackMap.get(location.parentId);
+              break;
+            }
+          }
+          if (!parentId && locationById.has(location.parentId)) parentId = location.parentId;
+        }
+      }
+
+      const identity = locationIdentity(parentId, location.name);
+      let canonicalId = locationIdByIdentity.get(identity);
+      if (!canonicalId) {
+        canonicalId = availableId(location.id, identity);
+        const mergedLocation = { ...location, id: canonicalId, parentId };
+        locations.push(mergedLocation);
+        locationById.set(canonicalId, mergedLocation);
+        locationIdByIdentity.set(identity, canonicalId);
+      }
+
+      idMap.set(location.id, canonicalId);
+      resolving.delete(location.id);
+      return canonicalId;
+    }
+
+    sourceLocations.forEach(canonicalIdFor);
+  }
+
+  integrate(currentLocations, currentIdMap);
+  integrate(incomingLocations, incomingIdMap, [currentIdMap]);
+  return {
+    locations,
+    currentLocationIdMap: currentIdMap,
+    incomingLocationIdMap: incomingIdMap,
+  };
+}
+
 export function mergeCollections(currentInput, incomingInput) {
   const current = normalizeCollection(currentInput);
   const incoming = normalizeCollection(incomingInput);
-  const locationMap = new Map(current.locations.map((location) => [location.id, location]));
-  incoming.locations.forEach((location) => locationMap.set(location.id, location));
+  const { locations, currentLocationIdMap, incomingLocationIdMap } = mergeLocations(
+    current.locations,
+    incoming.locations,
+  );
 
   const publicationsByIdentity = new Map();
-  const incomingIdMap = new Map();
+  const incomingPublicationIdMap = new Map();
   current.publications.forEach((publication) =>
     publicationsByIdentity.set(publicationIdentity(publication), publication),
   );
@@ -363,23 +549,35 @@ export function mergeCollections(currentInput, incomingInput) {
     const key = publicationIdentity(publication);
     const existing = publicationsByIdentity.get(key);
     const canonicalId = existing?.id || publication.id;
-    incomingIdMap.set(publication.id, canonicalId);
+    incomingPublicationIdMap.set(publication.id, canonicalId);
     publicationsByIdentity.set(key, { ...publication, id: canonicalId });
   });
 
-  const ownedItemMap = new Map(current.ownedItems.map((item) => [item.id, item]));
+  const ownedItemMap = new Map(
+    current.ownedItems.map((item) => [
+      item.id,
+      {
+        ...item,
+        locationId: currentLocationIdMap.get(item.locationId) || item.locationId,
+      },
+    ]),
+  );
   incoming.ownedItems.forEach((item) =>
     ownedItemMap.set(item.id, {
       ...item,
-      publicationId: incomingIdMap.get(item.publicationId) || item.publicationId,
+      publicationId: incomingPublicationIdMap.get(item.publicationId) || item.publicationId,
+      locationId:
+        incomingLocationIdMap.get(item.locationId) ||
+        currentLocationIdMap.get(item.locationId) ||
+        item.locationId,
     }),
   );
 
   return {
     schemaVersion: SCHEMA_VERSION,
     exportedAt: new Date().toISOString(),
-    collection: incoming.collection,
-    locations: [...locationMap.values()],
+    collection: current.collection,
+    locations,
     publications: [...publicationsByIdentity.values()],
     ownedItems: [...ownedItemMap.values()],
   };
@@ -409,5 +607,9 @@ export function collectionStats(collectionInput) {
 
 export function exportPayload(collectionInput, exportedAt = new Date().toISOString()) {
   const collection = normalizeCollection(collectionInput);
-  return { ...collection, schemaVersion: SCHEMA_VERSION, exportedAt };
+  return {
+    ...collection,
+    schemaVersion: SCHEMA_VERSION,
+    exportedAt: normalizedISODate(exportedAt, "exportedAt", true),
+  };
 }

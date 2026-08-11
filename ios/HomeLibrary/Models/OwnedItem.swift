@@ -22,6 +22,8 @@ enum OwnedItemStatus: String, Codable, CaseIterable, Identifiable {
 @Model
 final class OwnedItem {
     var id: UUID
+    /// Identyfikator z formatu wymiany, zachowywany przez pełny round-trip.
+    var externalID: String = ""
     var publication: Publication?
     /// Ścieżka rozdzielona ukośnikami, np. "Dom / Gabinet / Regał A / Półka 2".
     var locationPathText: String
@@ -32,6 +34,7 @@ final class OwnedItem {
 
     init(
         id: UUID = UUID(),
+        externalID: String? = nil,
         publication: Publication,
         locationPathText: String,
         status: OwnedItemStatus = .owned,
@@ -40,6 +43,8 @@ final class OwnedItem {
         updatedAt: Date = .now
     ) {
         self.id = id
+        let cleanExternalID = externalID?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        self.externalID = cleanExternalID.isEmpty ? id.uuidString : cleanExternalID
         self.publication = publication
         self.locationPathText = locationPathText
         self.statusRawValue = status.rawValue
@@ -63,5 +68,10 @@ final class OwnedItem {
     var locationDisplayName: String {
         let components = locationPath
         return components.isEmpty ? "Bez lokalizacji" : components.joined(separator: " › ")
+    }
+
+    var exportID: String {
+        let clean = externalID.trimmingCharacters(in: .whitespacesAndNewlines)
+        return clean.isEmpty ? id.uuidString : clean
     }
 }

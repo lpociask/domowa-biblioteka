@@ -60,6 +60,10 @@ struct ScannerStep: View {
                         .buttonStyle(.borderedProminent)
                         .disabled(manualCode.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
+
+                Text("Po rozpoznaniu ISBN aplikacja wyśle tylko ten numer do Biblioteki Narodowej, a przy braku wyniku — do Open Library. Lokalizacja i notatki pozostają na urządzeniu.")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
             }
             .padding()
             .background(.bar)

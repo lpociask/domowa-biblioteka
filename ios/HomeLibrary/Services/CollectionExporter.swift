@@ -85,8 +85,8 @@ enum CollectionExporter {
             let key = canonicalPath(path)
 
             return ExportOwnedItem(
-                id: item.id.uuidString,
-                publicationId: publication.id.uuidString,
+                id: item.exportID,
+                publicationId: publication.exportID,
                 locationId: locationResult.leafIDs[key],
                 locationPath: path,
                 status: item.status.rawValue,
@@ -128,7 +128,7 @@ enum CollectionExporter {
             : nil
 
         return ExportPublication(
-            id: publication.id.uuidString,
+            id: publication.exportID,
             type: publication.publicationType.rawValue,
             title: publication.title,
             subtitle: nilIfEmpty(publication.subtitle),
@@ -231,10 +231,8 @@ enum CollectionExporter {
     }
 
     private static func normalizedCollectionID(_ value: String) -> String {
-        if let uuid = UUID(uuidString: value) {
-            return uuid.uuidString
-        }
-        return stableUUID(for: "collection:\(value)")
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? stableUUID(for: "collection:default") : trimmed
     }
 
     private static func nilIfEmpty(_ value: String) -> String? {

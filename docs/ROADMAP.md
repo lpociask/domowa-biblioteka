@@ -5,18 +5,25 @@
 - [x] wspólny format kolekcji JSON v1;
 - [x] repozytorium oraz pipeline GitHub Pages;
 - [x] iOS: lokalna baza, lista, wyszukiwanie, dodawanie i skaner;
-- [x] iOS: eksport JSON;
+- [x] iOS: import i eksport JSON v1, addytywny i idempotentny względem identyfikatorów;
 - [x] web: import, wyszukiwanie, filtry i lokalne przechowywanie;
+- [x] ręczny transfer kolekcji iOS ↔ web bez backendu i automatycznej synchronizacji;
 - [x] testy automatyczne;
-- [ ] publikacja wersji demonstracyjnej na GitHub Pages.
+- [x] publikacja wersji demonstracyjnej na GitHub Pages.
 
 ## Etap 1 — metadane książek
 
-- adapter Biblioteki Narodowej po ISBN/ISSN;
-- adapter e‑ISBN jako uzupełnienie nowych polskich wydań;
-- cache odpowiedzi z pochodzeniem na poziomie rekordu;
-- ekran wyboru wyniku, gdy źródła zwracają różne wydania;
-- zdjęcie strony tytułowej i ręczny fallback dla książek bez kodu.
+- [x] adapter Biblioteki Narodowej po ISBN;
+- [x] kaskadowy fallback Open Library, gdy BN nie zwróci dopasowania albo jest chwilowo niedostępna;
+- [x] lookup pojedynczego ISBN uruchamiany przez użytkownika, bez zadań wsadowych;
+- [x] cache HTTP dla Open Library i zapis pochodzenia zaakceptowanych metadanych;
+- [x] zachowanie ręcznych zmian wykonanych podczas trwania lookupu;
+- [ ] adapter e‑ISBN jako uzupełnienie nowych polskich wydań;
+- [ ] jawny, trwały cache metadanych z TTL, pochodzeniem pól i polityką odświeżania;
+- [ ] ekran wyboru wyniku, gdy źródła zwracają różne wydania;
+- [ ] zdjęcie strony tytułowej i ręczny fallback dla książek bez kodu.
+
+Open Library pozostaje eksperymentalnym źródłem low-volume. Bieżący cache jest cache'em HTTP `URLSession`, a nie trwałą lokalną bazą odpowiedzi.
 
 ## Etap 2 — prasa
 
@@ -36,6 +43,8 @@
 - backup, eksport oraz usunięcie konta;
 - izolacja danych per kolekcja i historia przenosin egzemplarza.
 
+Etap 3 nie jest rozpoczęty. Ręczny plik JSON pozostaje świadomym mechanizmem transferu i kopii zapasowej do czasu wyników pilota oraz osobnej decyzji o chmurze.
+
 ## Etap 4 — funkcje kolekcjonerskie
 
 - domownicy i wypożyczenia;
@@ -52,6 +61,6 @@ Pilot powinien objąć 100–200 realnych obiektów. Orientacyjne cele:
 - mediana poniżej 8 sekund od skanu do zapisu książki;
 - mediana poniżej 20 sekund dla numeru prasy wymagającego potwierdzenia;
 - mniej niż 15% ręcznych korekt dla książek z ISBN;
-- pełne odtworzenie kolekcji z eksportu.
+- pełne odtworzenie kolekcji z eksportu, zweryfikowane na realnych danych i w obu klientach.
 
 To są progi decyzyjne, nie wyniki osiągnięte przez obecną wersję.

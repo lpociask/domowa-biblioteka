@@ -10,7 +10,37 @@ Natywny vertical slice dla iOS 17+, bez zewnętrznych zależności. Dane są prz
 - lista, wyszukiwanie, szczegóły i usuwanie egzemplarzy,
 - lokalizacja jako ścieżka, np. `Dom / Gabinet / Regał A / Półka 2`,
 - osobne modele `Publication` i `OwnedItem`,
-- eksport do wspólnego formatu JSON v1 używanego przez stronę WWW.
+- import i eksport wspólnego formatu JSON v1 używanego przez stronę WWW,
+- uzupełnianie książki po ISBN w kaskadzie Biblioteka Narodowa → Open Library.
+
+## Lookup metadanych
+
+Po zeskanowaniu lub zatwierdzeniu prawidłowego ISBN w ręcznym fallbacku skanera aplikacja normalizuje ISBN-10/ISBN-13 i wykonuje pojedynczy lookup. Najpierw pyta API Biblioteki Narodowej. Open Library jest sprawdzane dopiero wtedy, gdy BN nie zwróci użytecznego rekordu albo odpowie błędem.
+
+- Pierwszy użyteczny wynik uzupełnia tytuł, podtytuł, autorów, wydawcę, rok i język.
+- Formularz pozostaje edytowalny podczas zapytania; wpisane w tym czasie wartości nie są nadpisywane.
+- Brak wyniku lub awaria obu katalogów nie blokuje ręcznego zapisu.
+- Open Library jest przeznaczone wyłącznie do wywołań low-volume inicjowanych przez użytkownika. Żądania korzystają z cache HTTP `returnCacheDataElseLoad`; nie ma pobierania wsadowego ani trwałego cache'u metadanych.
+- W rekordzie zostaje zapisane źródło zaakceptowanych danych: `bn` albo `openlibrary`.
+
+Do katalogów trafia tylko znormalizowany ISBN. Lokalizacja egzemplarza, notatki i pozostała kolekcja nie są częścią żądania.
+
+## Import i eksport JSON
+
+Opcje `Eksportuj JSON` i `Importuj JSON` znajdują się w menu `Więcej`. Plik należy przenieść ręcznie, np. przez aplikację Pliki lub AirDrop. Aplikacja nie ma konta, własnej chmury ani automatycznej synchronizacji.
+
+Import v1:
+
+- wymaga pełnego kanonicznego dokumentu v1 oraz sprawdza daty, identyfikatory, referencje i graf lokalizacji przed zapisem;
+- odrzuca pliki większe niż 25 MB i nadmierną liczbę rekordów;
+- odczytuje, dekoduje i waliduje plik poza głównym wątkiem, a dopiero gotowy plan zapisuje w SwiftData;
+- zachowuje zewnętrzne ID przez kolejny eksport; wewnętrznie pozostawia UUID albo deterministycznie mapuje tekst w osobnych przestrzeniach publikacji i egzemplarzy;
+- dodaje brakujące publikacje i egzemplarze oraz zachowuje wiele kopii;
+- przy ponownym imporcie pomija istniejące identyfikatory i nie nadpisuje lokalnych rekordów;
+- odtwarza lokalizację z `locationPath` albo z hierarchii `locations`;
+- przy imporcie do pustej bazy przyjmuje nazwę i ID kolekcji z pliku.
+
+Plik może zawierać prywatne nazwy pomieszczeń i notatki. Użytkownik wybiera jego miejsce docelowe; prawdziwego eksportu nie należy commitować ani publikować na GitHub Pages.
 
 ## Uruchomienie
 
