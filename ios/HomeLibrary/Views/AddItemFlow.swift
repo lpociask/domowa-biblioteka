@@ -255,6 +255,10 @@ struct AddItemFlow: View {
             return normalizedISBN
         case .ean13 where parsed.isValid:
             ean = parsed.normalized
+            if let parsedISSN = parsed.issn {
+                publicationType = .periodical
+                issn = parsedISSN
+            }
         case .upce:
             ean = parsed.normalized
         default:

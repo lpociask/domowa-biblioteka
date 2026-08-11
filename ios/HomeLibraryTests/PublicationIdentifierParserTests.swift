@@ -34,6 +34,41 @@ final class PublicationIdentifierParserTests: XCTestCase {
         XCTAssertEqual(parsed.kind, .ean13)
         XCTAssertTrue(parsed.isValid)
         XCTAssertNil(parsed.isbn13)
+        XCTAssertNil(parsed.issn)
+    }
+
+    func testDerivesISSNFromValid977EAN13() {
+        let parsed = PublicationIdentifierParser.parse("9770033248007")
+
+        XCTAssertEqual(parsed.kind, .ean13)
+        XCTAssertTrue(parsed.isValid)
+        XCTAssertNil(parsed.isbn13)
+        XCTAssertEqual(parsed.issn, "0033-2488")
+    }
+
+    func testDerivesISSNWithXCheckDigit() {
+        let parsed = PublicationIdentifierParser.parse("9771050124008")
+
+        XCTAssertEqual(parsed.kind, .ean13)
+        XCTAssertTrue(parsed.isValid)
+        XCTAssertEqual(parsed.issn, "1050-124X")
+    }
+
+    func testIgnoresVariantDigitsWhenDerivingISSN() {
+        let parsed = PublicationIdentifierParser.parse("9770033248427")
+
+        XCTAssertEqual(parsed.kind, .ean13)
+        XCTAssertTrue(parsed.isValid)
+        XCTAssertEqual(parsed.issn, "0033-2488")
+    }
+
+    func testRejects977EAN13WithWrongCheckDigit() {
+        let parsed = PublicationIdentifierParser.parse("9770033248008")
+
+        XCTAssertEqual(parsed.kind, .ean13)
+        XCTAssertFalse(parsed.isValid)
+        XCTAssertNil(parsed.isbn13)
+        XCTAssertNil(parsed.issn)
     }
 
     func testRejectsWrongEANCheckDigit() {

@@ -14,6 +14,7 @@ struct ParsedPublicationIdentifier: Equatable {
     let normalized: String
     let isValid: Bool
     let isbn13: String?
+    let issn: String?
 }
 
 enum PublicationIdentifierParser {
@@ -29,7 +30,8 @@ enum PublicationIdentifierParser {
                 original: rawValue,
                 normalized: compact,
                 isValid: true,
-                isbn13: converted
+                isbn13: converted,
+                issn: nil
             )
         }
 
@@ -39,7 +41,8 @@ enum PublicationIdentifierParser {
                 original: rawValue,
                 normalized: compact,
                 isValid: false,
-                isbn13: nil
+                isbn13: nil,
+                issn: nil
             )
         }
 
@@ -51,7 +54,8 @@ enum PublicationIdentifierParser {
                 original: rawValue,
                 normalized: compact,
                 isValid: valid,
-                isbn13: isISBN && valid ? compact : nil
+                isbn13: isISBN && valid ? compact : nil,
+                issn: valid ? deriveISSN(from: compact) : nil
             )
         }
 
@@ -61,7 +65,8 @@ enum PublicationIdentifierParser {
                 original: rawValue,
                 normalized: compact,
                 isValid: true,
-                isbn13: nil
+                isbn13: nil,
+                issn: nil
             )
         }
 
@@ -70,7 +75,8 @@ enum PublicationIdentifierParser {
             original: rawValue,
             normalized: rawValue.trimmingCharacters(in: .whitespacesAndNewlines),
             isValid: false,
-            isbn13: nil
+            isbn13: nil,
+            issn: nil
         )
     }
 
@@ -106,6 +112,26 @@ enum PublicationIdentifierParser {
             sum += digit * (10 - index)
         }
         return sum.isMultiple(of: 11)
+    }
+
+    private static func deriveISSN(from ean13: String) -> String? {
+        guard ean13.hasPrefix("977") else { return nil }
+
+        let characters = Array(ean13)
+        guard characters.count == 13 else { return nil }
+        let baseCharacters = characters[3..<10]
+        let digits = baseCharacters.compactMap(\.wholeNumberValue)
+        guard digits.count == 7 else { return nil }
+
+        let sum = digits.enumerated().reduce(0) { partial, pair in
+            let (index, digit) = pair
+            return partial + digit * (8 - index)
+        }
+        let checkValue = (11 - (sum % 11)) % 11
+        let checkCharacter = checkValue == 10 ? "X" : String(checkValue)
+        let base = String(baseCharacters)
+
+        return "\(base.prefix(4))-\(base.dropFirst(4))\(checkCharacter)"
     }
 
     private static func convertISBN10To13(_ isbn10: String) -> String {

@@ -28,11 +28,13 @@ Open Library pozostaje eksperymentalnym źródłem low-volume. Bieżący cache j
 ## Etap 2 — prasa
 
 - rozdzielenie `Serial → SerialManifestation → Issue → OwnedItem`;
-- parser kodu 977;
+- [x] parser kodu 977: walidacja EAN‑13, automatyczny typ prasa i wyprowadzenie bazowego ISSN;
 - test odczytu dodatków EAN‑2/EAN‑5 na fizycznej próbce;
 - OCR daty, numeru i tomu z okładki;
 - szybki tryb dodawania kolejnych numerów jednego tytułu;
 - widok brakujących i zdublowanych numerów.
+
+Kod 977 identyfikuje tytuł/manifestację seryjną, nie konkretny numer. Dwie cyfry wariantu w głównym EAN‑13 nie są numerem wydania; dopóki skaner nie obsługuje osobnego dodatku EAN‑2/EAN‑5 lub OCR okładki, numer i data pozostają polami ręcznymi.
 
 ## Etap 3 — prywatna synchronizacja
 
