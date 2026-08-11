@@ -68,14 +68,17 @@ struct AddItemFlow: View {
     @State private var serialModeEnabled: Bool
 
     private let metadataProvider: any BookMetadataProviding
+    private let onMutation: (() -> Void)?
 
     init(
         startWithScanner: Bool,
-        metadataProvider: any BookMetadataProviding = CascadingBookMetadataProvider()
+        metadataProvider: any BookMetadataProviding = CascadingBookMetadataProvider(),
+        onMutation: (() -> Void)? = nil
     ) {
         _step = State(initialValue: startWithScanner ? .scanner : .form)
         _serialModeEnabled = State(initialValue: startWithScanner)
         self.metadataProvider = metadataProvider
+        self.onMutation = onMutation
     }
 
     var body: some View {
@@ -975,6 +978,7 @@ struct AddItemFlow: View {
         isSaving = true
         do {
             let result = try CatalogingService(modelContext: modelContext).save(request)
+            onMutation?()
             catalogingSession.recordSaved(itemID: result.item.id, savedAt: now)
             savedTitle = result.publication.title
             savedLocation = catalogingSession.canonicalLocation.canonical

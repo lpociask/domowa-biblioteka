@@ -35,7 +35,7 @@ final class OwnedItem {
     init(
         id: UUID = UUID(),
         externalID: String? = nil,
-        publication: Publication,
+        publication: Publication?,
         locationPathText: String,
         status: OwnedItemStatus = .owned,
         notes: String = "",

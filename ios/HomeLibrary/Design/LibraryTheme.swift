@@ -7,6 +7,8 @@ enum LibraryPalette {
     static let ink = Color(hex: "171713")
     static let mutedInk = Color(hex: "6D685E")
     static let rule = Color.black.opacity(0.24)
+    /// Kontrastowa krawędź pól i selektorów; cienkie `rule` służy tylko podziałom treści.
+    static let controlBorder = ink.opacity(0.52)
     /// Oryginalny akcent 5×12 — dla dużych plam, reguł i znaków dekoracyjnych.
     static let orange = Color(hex: "DD6B24")
     /// Ciemniejszy wariant dla małego tekstu i ikon (kontrast > 4.5:1 na papierze).

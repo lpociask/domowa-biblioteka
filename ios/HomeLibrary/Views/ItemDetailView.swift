@@ -2,6 +2,8 @@ import SwiftUI
 
 struct ItemDetailView: View {
     let item: OwnedItem
+    var onEdit: (() -> Void)? = nil
+    var onMove: (() -> Void)? = nil
 
     var body: some View {
         ZStack {
@@ -16,6 +18,17 @@ struct ItemDetailView: View {
                         message: item.locationDisplayName,
                         icon: "mappin.and.ellipse"
                     )
+
+                    if let onMove {
+                        EditorialActionRow(
+                            title: "Przenieś egzemplarz",
+                            detail: "Zmień regał lub półkę bez edytowania opisu wydania.",
+                            icon: "arrow.right"
+                        ) {
+                            onMove()
+                        }
+                        .accessibilityIdentifier("itemDetail.move")
+                    }
 
                     copyDetails
 
@@ -36,6 +49,16 @@ struct ItemDetailView: View {
         .toolbarBackground(LibraryPalette.paper, for: .navigationBar)
         .toolbarBackground(.visible, for: .navigationBar)
         .toolbarColorScheme(.light, for: .navigationBar)
+        .toolbar {
+            if let onEdit {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Edytuj", action: onEdit)
+                        .font(.subheadline.weight(.bold))
+                        .frame(minWidth: 44, minHeight: 44)
+                        .accessibilityIdentifier("itemDetail.edit")
+                }
+            }
+        }
         .libraryLightAppearance()
         .tint(LibraryPalette.ink)
     }
@@ -48,6 +71,7 @@ struct ItemDetailView: View {
                 eyebrow: headerKicker(for: publication),
                 subtitle: headerSubtitle(for: publication)
             )
+            .accessibilityLabel(accessibleHeaderLabel(for: publication))
         } else {
             LibraryMasthead(
                 title: "Egzemplarz",
@@ -159,7 +183,7 @@ struct ItemDetailView: View {
                 .fill(LibraryPalette.ink)
                 .frame(height: 1)
         }
-        .accessibilityElement(children: .combine)
+        .accessibilityHidden(true)
     }
 
     private func headerKicker(for publication: Publication) -> String {
@@ -168,6 +192,17 @@ struct ItemDetailView: View {
             return type
         }
         return "\(type)  ·  \(identifier)"
+    }
+
+    private func accessibleHeaderLabel(for publication: Publication) -> String {
+        [
+            publication.publicationType.label,
+            clean(publication.title) ?? "Bez tytułu",
+            clean(publication.authors.joined(separator: ", ")),
+            clean(publication.subtitle)
+        ]
+        .compactMap { $0 }
+        .joined(separator: ", ")
     }
 
     private func headerSubtitle(for publication: Publication) -> String? {
@@ -270,7 +305,7 @@ private struct EditorialMetadataRow: View {
         }
         .accessibilityElement(children: .combine)
         .accessibilityLabel(label)
-        .accessibilityValue(value)
+        .accessibilityValue(accessibilityValue)
     }
 
     private var rowLabel: some View {
@@ -278,6 +313,15 @@ private struct EditorialMetadataRow: View {
             .font(.caption2.weight(.bold))
             .tracking(1.25)
             .foregroundStyle(LibraryPalette.mutedInk)
+    }
+
+    private var accessibilityValue: String {
+        guard monospaced else { return value }
+        return value
+            .uppercased()
+            .filter { $0.isLetter || $0.isNumber }
+            .map(String.init)
+            .joined(separator: " ")
     }
 
     @ViewBuilder

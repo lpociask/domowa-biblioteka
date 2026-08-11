@@ -8,6 +8,7 @@ struct LibraryMasthead: View {
 
     @ScaledMetric(relativeTo: .largeTitle) private var regularTitleSize = 48.0
     @ScaledMetric(relativeTo: .title) private var compactTitleSize = 31.0
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var body: some View {
         VStack(alignment: .leading, spacing: compact ? 6 : 10) {
@@ -27,9 +28,10 @@ struct LibraryMasthead: View {
                     ))
                     .fontWidth(.condensed)
                     .tracking(compact ? -1.2 : -1.8)
-                    .lineLimit(compact ? 2 : 3)
-                    .minimumScaleFactor(0.55)
-                    .allowsTightening(true)
+                    .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : (compact ? 2 : 3))
+                    .minimumScaleFactor(dynamicTypeSize.isAccessibilitySize ? 1 : 0.55)
+                    .allowsTightening(!dynamicTypeSize.isAccessibilitySize)
+                    .fixedSize(horizontal: false, vertical: dynamicTypeSize.isAccessibilitySize)
 
                 Circle()
                     .fill(LibraryPalette.orange)
@@ -268,11 +270,12 @@ struct EditorialMetricStrip: View {
                     .font(.caption2.weight(.bold))
                     .tracking(1.4)
                     .foregroundStyle(LibraryPalette.mutedInk)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.68)
-                    .allowsTightening(true)
+                    .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 1)
+                    .minimumScaleFactor(dynamicTypeSize.isAccessibilitySize ? 1 : 0.68)
+                    .allowsTightening(!dynamicTypeSize.isAccessibilitySize)
+                    .fixedSize(horizontal: false, vertical: dynamicTypeSize.isAccessibilitySize)
             }
-            .frame(minWidth: 76, maxWidth: .infinity, minHeight: 44, alignment: .leading)
+            .frame(minWidth: 64, maxWidth: .infinity, minHeight: 44, alignment: .leading)
             .padding(.vertical, 14)
             .accessibilityElement(children: .combine)
         }
@@ -286,6 +289,7 @@ struct EditorialLabeledTextField: View {
     var keyboardType: UIKeyboardType = .default
     var textContentType: UITextContentType?
     var submitLabel: SubmitLabel = .next
+    var accessibilityIdentifier: String?
 
     var body: some View {
         EditorialFieldFrame(label: label) {
@@ -297,6 +301,7 @@ struct EditorialLabeledTextField: View {
                 .submitLabel(submitLabel)
                 .frame(minHeight: 44)
                 .accessibilityLabel(label)
+                .optionalAccessibilityIdentifier(accessibilityIdentifier)
         }
     }
 }
@@ -306,6 +311,7 @@ struct EditorialAxisField: View {
     @Binding var text: String
     var prompt: String = ""
     var lineLimit: ClosedRange<Int> = 3...7
+    var accessibilityIdentifier: String?
 
     var body: some View {
         EditorialFieldFrame(label: label) {
@@ -315,6 +321,7 @@ struct EditorialAxisField: View {
                 .lineLimit(lineLimit)
                 .frame(maxWidth: .infinity, minHeight: 76, alignment: .topLeading)
                 .accessibilityLabel(label)
+                .optionalAccessibilityIdentifier(accessibilityIdentifier)
         }
     }
 }
@@ -355,6 +362,124 @@ struct EditorialStatusBand: View {
             Rectangle().fill(accent).frame(width: 4)
         }
         .accessibilityElement(children: .combine)
+    }
+}
+
+struct EditorialUndoBand: View {
+    let title: String
+    var message: String?
+    var undoTitle: String = "Cofnij"
+    var accessibilityIdentifier: String?
+    var undoAccessibilityIdentifier: String?
+    var dismissAccessibilityIdentifier: String?
+    var onDismiss: (() -> Void)?
+    let onUndo: () -> Void
+
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
+    var body: some View {
+        Group {
+            if dynamicTypeSize.isAccessibilitySize {
+                verticalContent
+            } else {
+                ViewThatFits(in: .horizontal) {
+                    horizontalContent
+                    verticalContent
+                }
+            }
+        }
+        .foregroundStyle(LibraryPalette.ink)
+        .padding(LibrarySpacing.medium)
+        .background(LibraryPalette.ink.opacity(0.045))
+        .overlay(alignment: .leading) {
+            Rectangle()
+                .fill(LibraryPalette.orangeText)
+                .frame(width: 4)
+                .accessibilityHidden(true)
+        }
+        .accessibilityElement(children: .contain)
+        .optionalAccessibilityIdentifier(accessibilityIdentifier)
+    }
+
+    private var horizontalContent: some View {
+        HStack(alignment: .center, spacing: LibrarySpacing.small) {
+            announcement
+                .frame(minWidth: 142, maxWidth: .infinity, alignment: .leading)
+
+            undoButton
+
+            if onDismiss != nil {
+                dismissButton
+            }
+        }
+    }
+
+    private var verticalContent: some View {
+        VStack(alignment: .leading, spacing: LibrarySpacing.small) {
+            announcement
+
+            HStack(spacing: LibrarySpacing.small) {
+                undoButton
+                Spacer(minLength: LibrarySpacing.small)
+                if onDismiss != nil {
+                    dismissButton
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .overlay(alignment: .top) {
+                Rectangle()
+                    .fill(LibraryPalette.rule)
+                    .frame(height: 1)
+                    .accessibilityHidden(true)
+            }
+        }
+    }
+
+    private var announcement: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            Text(title.uppercased())
+                .font(.caption.weight(.bold))
+                .tracking(1.35)
+
+            if let message, !message.isEmpty {
+                Text(message)
+                    .font(.system(.footnote, design: .serif))
+                    .lineSpacing(3)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(title)
+        .accessibilityValue(message ?? "")
+    }
+
+    private var undoButton: some View {
+        Button(action: onUndo) {
+            Text(undoTitle.uppercased())
+                .font(.caption.weight(.bold))
+                .tracking(1.2)
+                .foregroundStyle(LibraryPalette.orangeText)
+                .frame(minWidth: 72, minHeight: 44, alignment: .center)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(undoTitle)
+            .optionalAccessibilityIdentifier(undoAccessibilityIdentifier)
+    }
+
+    private var dismissButton: some View {
+        Button {
+            onDismiss?()
+        } label: {
+            Image(systemName: "xmark")
+                .font(.caption.weight(.bold))
+                .foregroundStyle(LibraryPalette.mutedInk)
+                .frame(width: 44, height: 44)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Zamknij komunikat")
+        .optionalAccessibilityIdentifier(dismissAccessibilityIdentifier)
     }
 }
 
@@ -421,7 +546,7 @@ struct EditorialPublicationTypeSelector<Value: Hashable>: View {
                 .background(isSelected ? LibraryPalette.ink : LibraryPalette.warmPaper.opacity(0.72))
                 .overlay {
                     RoundedRectangle(cornerRadius: LibraryRadius.small)
-                        .stroke(LibraryPalette.ink.opacity(isSelected ? 1 : 0.34), lineWidth: 1)
+                        .stroke(isSelected ? LibraryPalette.ink : LibraryPalette.controlBorder, lineWidth: 1)
                 }
                 .clipShape(RoundedRectangle(cornerRadius: LibraryRadius.small))
                 .contentShape(RoundedRectangle(cornerRadius: LibraryRadius.small))
@@ -439,6 +564,7 @@ private struct EditorialFieldFrame<Content: View>: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 9) {
             EditorialFieldLabel(label)
+                .accessibilityHidden(true)
 
             content
                 .padding(.horizontal, 14)
@@ -446,7 +572,7 @@ private struct EditorialFieldFrame<Content: View>: View {
                 .background(LibraryPalette.warmPaper.opacity(0.62))
                 .overlay {
                     RoundedRectangle(cornerRadius: LibraryRadius.small)
-                        .stroke(LibraryPalette.rule, lineWidth: 1)
+                        .stroke(LibraryPalette.controlBorder, lineWidth: 1)
                 }
                 .clipShape(RoundedRectangle(cornerRadius: LibraryRadius.small))
         }
@@ -465,5 +591,24 @@ private struct EditorialFieldLabel: View {
             .font(.caption2.weight(.bold))
             .tracking(1.35)
             .foregroundStyle(LibraryPalette.mutedInk)
+    }
+}
+
+private struct OptionalAccessibilityIdentifier: ViewModifier {
+    let identifier: String?
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if let identifier, !identifier.isEmpty {
+            content.accessibilityIdentifier(identifier)
+        } else {
+            content
+        }
+    }
+}
+
+private extension View {
+    func optionalAccessibilityIdentifier(_ identifier: String?) -> some View {
+        modifier(OptionalAccessibilityIdentifier(identifier: identifier))
     }
 }
