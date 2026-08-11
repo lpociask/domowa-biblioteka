@@ -1,8 +1,15 @@
 import Foundation
 
 struct ExistingPublicationMatch {
+    enum Kind: Equatable {
+        case anotherCopy
+        case possibleRepeatScan
+    }
+
     let publication: Publication
     let copyCount: Int
+    let copyCountAtCurrentLocation: Int
+    let kind: Kind
 }
 
 enum ExistingPublicationMatcher {
@@ -13,16 +20,18 @@ enum ExistingPublicationMatcher {
         issn: String,
         ean: String,
         issueNumber: String,
-        issueDate: String
+        issueDate: String,
+        locationPath: LocationPath = LocationPath()
     ) -> ExistingPublicationMatch? {
-        let matchingPublication: Publication?
+        let matchingItems: [OwnedItem]
 
         switch type {
         case .book:
             guard let requestedISBN = normalizedISBN(isbn13.isEmpty ? ean : isbn13) else {
                 return nil
             }
-            matchingPublication = items.lazy.compactMap(\.publication).first { publication in
+            matchingItems = items.filter { item in
+                guard let publication = item.publication else { return false }
                 guard publication.publicationType == .book else { return false }
                 return normalizedISBN(publication.isbn13.isEmpty ? publication.ean : publication.isbn13)
                     == requestedISBN
@@ -41,7 +50,8 @@ enum ExistingPublicationMatcher {
                 return nil
             }
 
-            matchingPublication = items.lazy.compactMap(\.publication).first { publication in
+            matchingItems = items.filter { item in
+                guard let publication = item.publication else { return false }
                 guard publication.publicationType == .periodical,
                       normalizedISSN(publication.issn) == requestedISSN else {
                     return false
@@ -67,15 +77,29 @@ enum ExistingPublicationMatcher {
             }
         }
 
-        guard let matchingPublication else { return nil }
-        let copyCount = items.reduce(into: 0) { count, item in
-            if item.publication?.id == matchingPublication.id {
-                count += 1
+        guard let matchingPublication = matchingItems
+            .compactMap(\.publication)
+            .min(by: { $0.id.uuidString < $1.id.uuidString }) else {
+            return nil
+        }
+        let copyCount = matchingItems.count
+        let copyCountAtCurrentLocation: Int
+        if locationPath.isEmpty {
+            copyCountAtCurrentLocation = 0
+        } else {
+            copyCountAtCurrentLocation = matchingItems.reduce(into: 0) { count, item in
+                if item.status == .owned,
+                   LocationPath(item.locationPathText) == locationPath {
+                    count += 1
+                }
             }
         }
+
         return ExistingPublicationMatch(
             publication: matchingPublication,
-            copyCount: max(copyCount, 1)
+            copyCount: copyCount,
+            copyCountAtCurrentLocation: copyCountAtCurrentLocation,
+            kind: copyCountAtCurrentLocation > 0 ? .possibleRepeatScan : .anotherCopy
         )
     }
 

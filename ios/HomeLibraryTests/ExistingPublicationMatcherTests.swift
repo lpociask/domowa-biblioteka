@@ -24,6 +24,197 @@ final class ExistingPublicationMatcherTests: XCTestCase {
 
         XCTAssertEqual(match.publication.id, publication.id)
         XCTAssertEqual(match.copyCount, 2)
+        XCTAssertEqual(match.copyCountAtCurrentLocation, 0)
+        XCTAssertEqual(match.kind, .anotherCopy)
+    }
+
+    func testClassifiesSameBookAtCurrentShelfAsPossibleRepeatAndCountsCopies() throws {
+        let publication = Publication(
+            type: .book,
+            title: "Testowa książka",
+            isbn13: "9780306406157"
+        )
+        let firstAtShelf = OwnedItem(
+            publication: publication,
+            locationPathText: "Dom / Gabinet / Regał 2 / Półka 3"
+        )
+        let secondAtShelf = OwnedItem(
+            publication: publication,
+            locationPathText: "Dom / Gabinet / Regał 2 / Półka 3"
+        )
+        let elsewhere = OwnedItem(
+            publication: publication,
+            locationPathText: "Dom / Salon / Regał 1"
+        )
+
+        let match = try XCTUnwrap(ExistingPublicationMatcher.match(
+            in: [firstAtShelf, secondAtShelf, elsewhere],
+            type: .book,
+            isbn13: "978-0-306-40615-7",
+            issn: "",
+            ean: "",
+            issueNumber: "",
+            issueDate: "",
+            locationPath: LocationPath("Dom / Gabinet / Regał 2 / Półka 3")
+        ))
+
+        XCTAssertEqual(match.kind, .possibleRepeatScan)
+        XCTAssertEqual(match.copyCount, 3)
+        XCTAssertEqual(match.copyCountAtCurrentLocation, 2)
+    }
+
+    func testClassifiesSameBookAtDifferentShelfAsAnotherCopy() throws {
+        let publication = Publication(
+            type: .book,
+            title: "Testowa książka",
+            isbn13: "9780306406157"
+        )
+        let item = OwnedItem(
+            publication: publication,
+            locationPathText: "Dom / Gabinet / Regał 2 / Półka 3"
+        )
+
+        let match = try XCTUnwrap(ExistingPublicationMatcher.match(
+            in: [item],
+            type: .book,
+            isbn13: "9780306406157",
+            issn: "",
+            ean: "",
+            issueNumber: "",
+            issueDate: "",
+            locationPath: LocationPath("Dom / Gabinet / Regał 2 / Półka 4")
+        ))
+
+        XCTAssertEqual(match.kind, .anotherCopy)
+        XCTAssertEqual(match.copyCount, 1)
+        XCTAssertEqual(match.copyCountAtCurrentLocation, 0)
+    }
+
+    func testLocationComparisonNormalizesSeparatorsCaseAndDiacritics() throws {
+        let publication = Publication(
+            type: .book,
+            title: "Testowa książka",
+            isbn13: "9780306406157"
+        )
+        let item = OwnedItem(
+            publication: publication,
+            locationPathText: "Dom / Gabinet / Regał 2 / Półka 3"
+        )
+
+        let match = try XCTUnwrap(ExistingPublicationMatcher.match(
+            in: [item],
+            type: .book,
+            isbn13: "9780306406157",
+            issn: "",
+            ean: "",
+            issueNumber: "",
+            issueDate: "",
+            locationPath: LocationPath("dom › GABINET › REGAL 2 › polka 3")
+        ))
+
+        XCTAssertEqual(match.kind, .possibleRepeatScan)
+        XCTAssertEqual(match.copyCountAtCurrentLocation, 1)
+    }
+
+    func testEmptyCurrentLocationIsAlwaysClassifiedAsAnotherCopy() throws {
+        let publication = Publication(
+            type: .book,
+            title: "Testowa książka",
+            isbn13: "9780306406157"
+        )
+        let itemWithoutLocation = OwnedItem(publication: publication, locationPathText: "")
+
+        let match = try XCTUnwrap(ExistingPublicationMatcher.match(
+            in: [itemWithoutLocation],
+            type: .book,
+            isbn13: "9780306406157",
+            issn: "",
+            ean: "",
+            issueNumber: "",
+            issueDate: ""
+        ))
+
+        XCTAssertEqual(match.kind, .anotherCopy)
+        XCTAssertEqual(match.copyCount, 1)
+        XCTAssertEqual(match.copyCountAtCurrentLocation, 0)
+    }
+
+    func testAggregatesLegacyDuplicatePublicationRecordsAndChoosesDeterministically() throws {
+        let canonical = Publication(
+            id: UUID(uuidString: "00000000-0000-0000-0000-000000000001")!,
+            type: .book,
+            title: "Pierwszy rekord",
+            isbn13: "9780306406157"
+        )
+        let duplicate = Publication(
+            id: UUID(uuidString: "00000000-0000-0000-0000-000000000002")!,
+            type: .book,
+            title: "Duplikat z importu",
+            isbn13: "9780306406157"
+        )
+        let first = OwnedItem(
+            publication: canonical,
+            locationPathText: "Dom / Gabinet / Półka 1"
+        )
+        let second = OwnedItem(
+            publication: duplicate,
+            locationPathText: "Dom / Gabinet / Półka 1"
+        )
+        let location = LocationPath("Dom / Gabinet / Półka 1")
+
+        let forward = try XCTUnwrap(ExistingPublicationMatcher.match(
+            in: [second, first],
+            type: .book,
+            isbn13: "9780306406157",
+            issn: "",
+            ean: "",
+            issueNumber: "",
+            issueDate: "",
+            locationPath: location
+        ))
+        let reverse = try XCTUnwrap(ExistingPublicationMatcher.match(
+            in: [first, second],
+            type: .book,
+            isbn13: "9780306406157",
+            issn: "",
+            ean: "",
+            issueNumber: "",
+            issueDate: "",
+            locationPath: location
+        ))
+
+        XCTAssertEqual(forward.publication.id, canonical.id)
+        XCTAssertEqual(reverse.publication.id, canonical.id)
+        XCTAssertEqual(forward.copyCount, 2)
+        XCTAssertEqual(forward.copyCountAtCurrentLocation, 2)
+        XCTAssertEqual(forward.kind, .possibleRepeatScan)
+    }
+
+    func testNonOwnedCopiesDoNotTriggerSameShelfWarning() throws {
+        let publication = Publication(
+            type: .book,
+            title: "Testowa książka",
+            isbn13: "9780306406157"
+        )
+        let location = "Dom / Gabinet / Półka 1"
+        let loaned = OwnedItem(publication: publication, locationPathText: location, status: .loaned)
+        let missing = OwnedItem(publication: publication, locationPathText: location, status: .missing)
+        let archived = OwnedItem(publication: publication, locationPathText: location, status: .archived)
+
+        let match = try XCTUnwrap(ExistingPublicationMatcher.match(
+            in: [loaned, missing, archived],
+            type: .book,
+            isbn13: "9780306406157",
+            issn: "",
+            ean: "",
+            issueNumber: "",
+            issueDate: "",
+            locationPath: LocationPath(location)
+        ))
+
+        XCTAssertEqual(match.copyCount, 3)
+        XCTAssertEqual(match.copyCountAtCurrentLocation, 0)
+        XCTAssertEqual(match.kind, .anotherCopy)
     }
 
     func testDoesNotMergeBooksOnlyByTitle() {

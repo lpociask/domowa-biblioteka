@@ -56,6 +56,7 @@ struct AddItemFlow: View {
     @State private var savedLocation = ""
     @State private var savedCopyCount = 1
     @State private var savedUsedExistingPublication = false
+    @State private var isSaving = false
 
     private let metadataProvider: any BookMetadataProviding
 
@@ -136,9 +137,11 @@ struct AddItemFlow: View {
 
                 if let duplicateMatch {
                     EditorialStatusBand(
-                        title: "Kolejny egzemplarz",
+                        title: duplicateTitle(for: duplicateMatch),
                         message: duplicateMessage(for: duplicateMatch),
-                        icon: "square.on.square",
+                        icon: duplicateMatch.kind == .possibleRepeatScan
+                            ? "exclamationmark.triangle"
+                            : "square.on.square",
                         accent: LibraryPalette.orangeText
                     )
                 }
@@ -439,11 +442,14 @@ struct AddItemFlow: View {
                 .fill(LibraryPalette.rule)
                 .frame(height: 1)
 
-            EditorialPrimaryButton(title: duplicateMatch == nil ? "Zapisz egzemplarz" : "Dodaj kolejny egzemplarz") {
+            EditorialPrimaryButton(
+                title: saveButtonTitle,
+                isLoading: isSaving
+            ) {
                 save()
             }
-            .disabled(!canSave)
-            .opacity(canSave ? 1 : 0.5)
+            .disabled(!canSave || isSaving)
+            .opacity(canSave && !isSaving ? 1 : 0.5)
             .padding(.vertical, LibrarySpacing.small)
             .editorialPage(width: 760)
         }
@@ -629,12 +635,20 @@ struct AddItemFlow: View {
             issn: issn,
             ean: ean,
             issueNumber: issueNumber,
-            issueDate: issueDate
+            issueDate: issueDate,
+            locationPath: LocationPath(catalogingSession.locationText)
         )
     }
 
     private var canSave: Bool {
         duplicateMatch != nil || !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private var saveButtonTitle: String {
+        guard let duplicateMatch else { return "Zapisz egzemplarz" }
+        return duplicateMatch.kind == .possibleRepeatScan
+            ? "Dodaj mimo ostrzeżenia"
+            : "Dodaj kolejny egzemplarz"
     }
 
     private var locationTextBinding: Binding<String> {
@@ -661,8 +675,17 @@ struct AddItemFlow: View {
     }
 
     private func duplicateMessage(for match: ExistingPublicationMatch) -> String {
+        if match.kind == .possibleRepeatScan {
+            let label = match.copyCountAtCurrentLocation == 1 ? "egzemplarz" : "egzemplarze"
+            return "Na tej półce są już \(match.copyCountAtCurrentLocation) \(label) tego wydania. Sprawdź, czy nie skanujesz ponownie tej samej sztuki. Zapis mimo to utworzy kolejną kopię."
+        }
+
         let label = match.copyCount == 1 ? "egzemplarz" : "egzemplarze"
         return "W kolekcji są już \(match.copyCount) \(label) tego wydania. Zapis doda następną kopię i zachowa wspólny opis bibliograficzny."
+    }
+
+    private func duplicateTitle(for match: ExistingPublicationMatch) -> String {
+        match.kind == .possibleRepeatScan ? "Możliwy ponowny skan" : "Kolejny egzemplarz"
     }
 
     private func startRescan() {
@@ -671,6 +694,7 @@ struct AddItemFlow: View {
     }
 
     private func prepareNextPublication(startWithScanner: Bool) {
+        isSaving = false
         clearPublicationFields(preserveCopyFields: false)
         step = startWithScanner ? .scanner : .form
     }
@@ -829,6 +853,7 @@ struct AddItemFlow: View {
     }
 
     private func save() {
+        guard !isSaving else { return }
         let cleanTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
 
         var normalizedISBN = isbn13.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -860,7 +885,8 @@ struct AddItemFlow: View {
             issn: issn,
             ean: normalizedEAN,
             issueNumber: issueNumber,
-            issueDate: issueDate
+            issueDate: issueDate,
+            locationPath: LocationPath(catalogingSession.locationText)
         )
 
         guard match != nil || !cleanTitle.isEmpty else {
@@ -880,59 +906,38 @@ struct AddItemFlow: View {
         }
 
         let now = Date.now
-        let publication: Publication
-        let insertedNewPublication: Bool
-
-        if let match {
-            publication = match.publication
-            insertedNewPublication = false
-        } else {
-            publication = Publication(
-                type: publicationType,
-                title: cleanTitle,
-                subtitle: subtitle.trimmingCharacters(in: .whitespacesAndNewlines),
-                authorsText: authors.trimmingCharacters(in: .whitespacesAndNewlines),
-                language: language.trimmingCharacters(in: .whitespacesAndNewlines),
-                publisher: publisher.trimmingCharacters(in: .whitespacesAndNewlines),
-                publicationYear: year,
-                isbn13: normalizedISBN,
-                issn: issn.trimmingCharacters(in: .whitespacesAndNewlines),
-                ean: normalizedEAN,
-                barcode: barcode,
-                issueNumber: issueNumber.trimmingCharacters(in: .whitespacesAndNewlines),
-                issueVolume: issueVolume.trimmingCharacters(in: .whitespacesAndNewlines),
-                issueDate: issueDate.trimmingCharacters(in: .whitespacesAndNewlines),
-                metadataSource: metadataSource,
-                createdAt: now,
-                updatedAt: now
-            )
-            modelContext.insert(publication)
-            insertedNewPublication = true
-        }
-
-        let cleanLocation = LocationPath(catalogingSession.locationText).canonical
-        let item = OwnedItem(
-            publication: publication,
-            locationPathText: cleanLocation,
+        let request = CatalogingSaveRequest(
+            type: publicationType,
+            title: cleanTitle,
+            subtitle: subtitle.trimmingCharacters(in: .whitespacesAndNewlines),
+            authorsText: authors.trimmingCharacters(in: .whitespacesAndNewlines),
+            language: language.trimmingCharacters(in: .whitespacesAndNewlines),
+            publisher: publisher.trimmingCharacters(in: .whitespacesAndNewlines),
+            publicationYear: year,
+            isbn13: normalizedISBN,
+            issn: issn.trimmingCharacters(in: .whitespacesAndNewlines),
+            ean: normalizedEAN,
+            barcode: barcode.trimmingCharacters(in: .whitespacesAndNewlines),
+            issueNumber: issueNumber.trimmingCharacters(in: .whitespacesAndNewlines),
+            issueVolume: issueVolume.trimmingCharacters(in: .whitespacesAndNewlines),
+            issueDate: issueDate.trimmingCharacters(in: .whitespacesAndNewlines),
+            metadataSource: metadataSource,
+            locationPathText: catalogingSession.locationText,
             notes: notes.trimmingCharacters(in: .whitespacesAndNewlines),
-            addedAt: now,
-            updatedAt: now
+            savedAt: now
         )
-        modelContext.insert(item)
 
+        isSaving = true
         do {
-            try modelContext.save()
-            catalogingSession.recordSaved(itemID: item.id, savedAt: now)
-            savedTitle = publication.title
+            let result = try CatalogingService(modelContext: modelContext).save(request)
+            catalogingSession.recordSaved(itemID: result.item.id, savedAt: now)
+            savedTitle = result.publication.title
             savedLocation = catalogingSession.canonicalLocation.canonical
-            savedCopyCount = (match?.copyCount ?? 0) + 1
-            savedUsedExistingPublication = match != nil
+            savedCopyCount = result.copyCount
+            savedUsedExistingPublication = result.usedExisting
             step = .saved
         } catch {
-            modelContext.delete(item)
-            if insertedNewPublication {
-                modelContext.delete(publication)
-            }
+            isSaving = false
             validationMessage = "Nie udało się zapisać publikacji: \(error.localizedDescription)"
         }
     }
