@@ -1,0 +1,205 @@
+{
+  "schemaVersion": 1,
+  "exportedAt": "2026-08-11T10:00:00.000Z",
+  "collection": {
+    "id": "collection-demo",
+    "name": "Kolekcja demonstracyjna"
+  },
+  "locations": [
+    { "id": "loc-reading-room", "name": "Czytelnia", "type": "room", "parentId": null },
+    { "id": "loc-bookshelf", "name": "Regał z książkami", "type": "bookcase", "parentId": "loc-reading-room" },
+    { "id": "loc-shelf-a", "name": "Półka A", "type": "shelf", "parentId": "loc-bookshelf" },
+    { "id": "loc-shelf-b", "name": "Półka B", "type": "shelf", "parentId": "loc-bookshelf" },
+    { "id": "loc-archive", "name": "Archiwum", "type": "room", "parentId": null },
+    { "id": "loc-press-box", "name": "Pudło: prasa", "type": "box", "parentId": "loc-archive" }
+  ],
+  "publications": [
+    {
+      "id": "pub-solaris-demo",
+      "type": "book",
+      "title": "Solaris",
+      "subtitle": null,
+      "authors": ["Stanisław Lem"],
+      "language": "pl",
+      "publisher": "Wydanie demonstracyjne",
+      "publicationYear": 2019,
+      "identifiers": { "isbn13": "9780000000002", "issn": null, "ean": null, "barcode": null },
+      "issue": null,
+      "metadata": {
+        "description": "Klasyczna powieść o kontakcie z niepoznawalną formą inteligencji. Rekord służy wyłącznie jako przykład działania katalogu.",
+        "subjects": ["science fiction", "literatura polska"],
+        "pageCount": 336,
+        "source": "Dane demonstracyjne",
+        "sourceUrl": null,
+        "coverColor": "#b8583d"
+      },
+      "createdAt": "2026-08-05T17:12:00.000Z",
+      "updatedAt": "2026-08-05T17:12:00.000Z"
+    },
+    {
+      "id": "pub-left-hand-demo",
+      "type": "book",
+      "title": "The Left Hand of Darkness",
+      "subtitle": null,
+      "authors": ["Ursula K. Le Guin"],
+      "language": "en",
+      "publisher": "Wydanie demonstracyjne",
+      "publicationYear": 2014,
+      "identifiers": { "isbn13": "9780441478125", "issn": null, "ean": null, "barcode": null },
+      "issue": null,
+      "metadata": {
+        "description": "Anglojęzyczny przykład książki w kolekcji wielojęzycznej.",
+        "subjects": ["science fiction", "literatura amerykańska"],
+        "pageCount": 304,
+        "source": "Dane demonstracyjne",
+        "sourceUrl": null,
+        "coverColor": "#3f5f83"
+      },
+      "createdAt": "2026-08-07T08:40:00.000Z",
+      "updatedAt": "2026-08-07T08:40:00.000Z"
+    },
+    {
+      "id": "pub-mann-demo",
+      "type": "book",
+      "title": "Der Zauberberg",
+      "subtitle": "Roman",
+      "authors": ["Thomas Mann"],
+      "language": "de",
+      "publisher": "Wydanie demonstracyjne",
+      "publicationYear": 2012,
+      "identifiers": { "isbn13": "9780000000019", "issn": null, "ean": null, "barcode": null },
+      "issue": null,
+      "metadata": {
+        "description": "Niemieckojęzyczny rekord pokazujący obsługę publikacji zagranicznych.",
+        "subjects": ["klasyka", "literatura niemiecka"],
+        "pageCount": 1024,
+        "source": "Dane demonstracyjne",
+        "sourceUrl": null,
+        "coverColor": "#8c7546"
+      },
+      "createdAt": "2026-08-08T13:20:00.000Z",
+      "updatedAt": "2026-08-08T13:20:00.000Z"
+    },
+    {
+      "id": "pub-atlas-demo",
+      "type": "book",
+      "title": "Atlas typografii użytkowej",
+      "subtitle": "Notatki i przykłady",
+      "authors": ["Autor demonstracyjny"],
+      "language": "pl",
+      "publisher": "Pracownia Demo",
+      "publicationYear": 2023,
+      "identifiers": { "isbn13": null, "issn": null, "ean": null, "barcode": "DEMO-ATLAS-01" },
+      "issue": null,
+      "metadata": {
+        "description": "Przykład publikacji dodanej ręcznie — bez ISBN.",
+        "subjects": ["projektowanie", "typografia"],
+        "pageCount": 184,
+        "source": "Wpis ręczny",
+        "sourceUrl": null,
+        "coverColor": "#735b91"
+      },
+      "createdAt": "2026-08-09T16:05:00.000Z",
+      "updatedAt": "2026-08-09T16:05:00.000Z"
+    },
+    {
+      "id": "pub-przekroj-demo",
+      "type": "periodical",
+      "title": "Przekrój",
+      "subtitle": null,
+      "authors": [],
+      "language": "pl",
+      "publisher": "Wydanie demonstracyjne",
+      "publicationYear": 2024,
+      "identifiers": { "isbn13": null, "issn": "0033-2488", "ean": "9770033248000", "barcode": null },
+      "issue": { "volume": null, "number": "2/2024", "date": "2024-06" },
+      "metadata": {
+        "description": "Przykład konkretnego numeru czasopisma rozpoznanego po ISSN, dodatku kodu i okładce.",
+        "subjects": ["kultura", "społeczeństwo"],
+        "pageCount": 160,
+        "source": "Dane demonstracyjne",
+        "sourceUrl": null,
+        "coverColor": "#d99f34"
+      },
+      "createdAt": "2026-08-06T10:30:00.000Z",
+      "updatedAt": "2026-08-06T10:30:00.000Z"
+    },
+    {
+      "id": "pub-national-demo",
+      "type": "periodical",
+      "title": "National Geographic",
+      "subtitle": null,
+      "authors": [],
+      "language": "en",
+      "publisher": "Wydanie demonstracyjne",
+      "publicationYear": 2025,
+      "identifiers": { "isbn13": null, "issn": "0027-9358", "ean": null, "barcode": "DEMO-NG-2025-03" },
+      "issue": { "volume": null, "number": "March 2025", "date": "2025-03" },
+      "metadata": {
+        "description": "Zagraniczny numer magazynu w archiwum domowym.",
+        "subjects": ["nauka", "podróże"],
+        "pageCount": 122,
+        "source": "Dane demonstracyjne",
+        "sourceUrl": null,
+        "coverColor": "#cfaa23"
+      },
+      "createdAt": "2026-08-04T11:00:00.000Z",
+      "updatedAt": "2026-08-04T11:00:00.000Z"
+    },
+    {
+      "id": "pub-jazz-demo",
+      "type": "periodical",
+      "title": "Jazz Forum",
+      "subtitle": null,
+      "authors": [],
+      "language": "pl",
+      "publisher": "Wydanie demonstracyjne",
+      "publicationYear": 1998,
+      "identifiers": { "isbn13": null, "issn": "0324-1184", "ean": null, "barcode": null },
+      "issue": { "volume": null, "number": "6/1998", "date": "1998-12" },
+      "metadata": {
+        "description": "Przykład starszego numeru prasy, który może wymagać OCR i potwierdzenia ręcznego.",
+        "subjects": ["muzyka", "jazz"],
+        "pageCount": 96,
+        "source": "Dane demonstracyjne",
+        "sourceUrl": null,
+        "coverColor": "#393f46"
+      },
+      "createdAt": "2026-08-02T09:15:00.000Z",
+      "updatedAt": "2026-08-02T09:15:00.000Z"
+    },
+    {
+      "id": "pub-gazeta-demo",
+      "type": "periodical",
+      "title": "Gazeta archiwalna",
+      "subtitle": "Wydanie pokazowe",
+      "authors": [],
+      "language": "pl",
+      "publisher": "Przykład",
+      "publicationYear": 1989,
+      "identifiers": { "isbn13": null, "issn": null, "ean": null, "barcode": null },
+      "issue": { "volume": null, "number": "wydanie 01", "date": "1989-06-04" },
+      "metadata": {
+        "description": "Fikcyjny rekord demonstracyjny gazety bez kodu kreskowego.",
+        "subjects": ["archiwum"],
+        "pageCount": 16,
+        "source": "Wpis ręczny",
+        "sourceUrl": null,
+        "coverColor": "#776f61"
+      },
+      "createdAt": "2026-08-01T12:00:00.000Z",
+      "updatedAt": "2026-08-01T12:00:00.000Z"
+    }
+  ],
+  "ownedItems": [
+    { "id": "copy-solaris-1", "publicationId": "pub-solaris-demo", "locationId": "loc-shelf-a", "locationPath": ["Czytelnia", "Regał z książkami", "Półka A"], "status": "owned", "notes": "Egzemplarz demonstracyjny", "addedAt": "2026-08-05T17:15:00.000Z", "updatedAt": "2026-08-05T17:15:00.000Z" },
+    { "id": "copy-solaris-2", "publicationId": "pub-solaris-demo", "locationId": "loc-shelf-b", "locationPath": ["Czytelnia", "Regał z książkami", "Półka B"], "status": "loaned", "notes": "Drugi egzemplarz — oznaczony jako wypożyczony", "addedAt": "2026-08-10T09:00:00.000Z", "updatedAt": "2026-08-10T09:00:00.000Z" },
+    { "id": "copy-left-hand-1", "publicationId": "pub-left-hand-demo", "locationId": "loc-shelf-a", "locationPath": ["Czytelnia", "Regał z książkami", "Półka A"], "status": "owned", "notes": null, "addedAt": "2026-08-07T08:42:00.000Z", "updatedAt": "2026-08-07T08:42:00.000Z" },
+    { "id": "copy-mann-1", "publicationId": "pub-mann-demo", "locationId": "loc-shelf-b", "locationPath": ["Czytelnia", "Regał z książkami", "Półka B"], "status": "owned", "notes": null, "addedAt": "2026-08-08T13:22:00.000Z", "updatedAt": "2026-08-08T13:22:00.000Z" },
+    { "id": "copy-atlas-1", "publicationId": "pub-atlas-demo", "locationId": null, "locationPath": [], "status": "owned", "notes": "Do przypisania na półkę", "addedAt": "2026-08-09T16:07:00.000Z", "updatedAt": "2026-08-09T16:07:00.000Z" },
+    { "id": "copy-przekroj-1", "publicationId": "pub-przekroj-demo", "locationId": "loc-press-box", "locationPath": ["Archiwum", "Pudło: prasa"], "status": "owned", "notes": null, "addedAt": "2026-08-06T10:32:00.000Z", "updatedAt": "2026-08-06T10:32:00.000Z" },
+    { "id": "copy-national-1", "publicationId": "pub-national-demo", "locationId": "loc-press-box", "locationPath": ["Archiwum", "Pudło: prasa"], "status": "owned", "notes": null, "addedAt": "2026-08-04T11:02:00.000Z", "updatedAt": "2026-08-04T11:02:00.000Z" },
+    { "id": "copy-jazz-1", "publicationId": "pub-jazz-demo", "locationId": "loc-press-box", "locationPath": ["Archiwum", "Pudło: prasa"], "status": "owned", "notes": "Okładka lekko uszkodzona", "addedAt": "2026-08-02T09:18:00.000Z", "updatedAt": "2026-08-02T09:18:00.000Z" },
+    { "id": "copy-gazeta-1", "publicationId": "pub-gazeta-demo", "locationId": "loc-press-box", "locationPath": ["Archiwum", "Pudło: prasa"], "status": "owned", "notes": "Rekord demonstracyjny", "addedAt": "2026-08-01T12:02:00.000Z", "updatedAt": "2026-08-01T12:02:00.000Z" }
+  ]
+}
