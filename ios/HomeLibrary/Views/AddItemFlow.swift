@@ -5,6 +5,7 @@ struct AddItemFlow: View {
     private enum Step {
         case scanner
         case form
+        case saved
     }
 
     private enum MetadataLookupState: Equatable {
@@ -26,6 +27,7 @@ struct AddItemFlow: View {
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
+    @Query(sort: \OwnedItem.addedAt, order: .reverse) private var existingItems: [OwnedItem]
 
     @State private var step: Step
     @State private var publicationType: PublicationType = .book
@@ -50,6 +52,10 @@ struct AddItemFlow: View {
     @State private var metadataLookupTask: Task<Void, Never>?
     @State private var metadataLookupISBN: String?
     @State private var showsMoreData = false
+    @State private var savedTitle = ""
+    @State private var savedLocation = ""
+    @State private var savedCopyCount = 1
+    @State private var savedUsedExistingPublication = false
 
     private let metadataProvider: any BookMetadataProviding
 
@@ -63,40 +69,33 @@ struct AddItemFlow: View {
 
     var body: some View {
         NavigationStack {
-            switch step {
-            case .scanner:
-                ScannerStep { value, cameFromCamera in
-                    let scannedISBN = apply(identifier: value)
-                    metadataSource = cameFromCamera ? "scan" : "manual"
-                    step = .form
-                    if let scannedISBN {
-                        lookupMetadata(for: scannedISBN)
-                    }
-                }
-                .navigationTitle("Skanuj kod")
-                .navigationBarTitleDisplayMode(.inline)
-                .toolbar {
-                    ToolbarItem(placement: .cancellationAction) {
-                        Button("Anuluj") { dismiss() }
-                    }
-                }
+            ZStack {
+                PaperBackground()
 
-            case .form:
-                form
-                    .navigationTitle(metadataSource == "manual" ? "Nowa publikacja" : "Sprawdź publikację")
-                    .navigationBarTitleDisplayMode(.inline)
-                    .toolbar {
-                        ToolbarItem(placement: .cancellationAction) {
-                            Button("Anuluj") { dismiss() }
-                        }
-                        ToolbarItem(placement: .confirmationAction) {
-                            Button("Zapisz", action: save)
-                                .fontWeight(.semibold)
-                                .disabled(title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                        }
+                switch step {
+                case .scanner:
+                    scanner
+                case .form:
+                    form
+                case .saved:
+                    savedConfirmation
+                }
+            }
+            .foregroundStyle(LibraryPalette.ink)
+            .toolbarBackground(LibraryPalette.paper, for: .navigationBar)
+            .toolbarBackground(.visible, for: .navigationBar)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button(step == .saved ? "Gotowe" : "Anuluj") {
+                        dismiss()
                     }
+                    .foregroundStyle(LibraryPalette.ink)
+                    .frame(minWidth: 44, minHeight: 44)
+                }
             }
         }
+        .libraryLightAppearance()
         .interactiveDismissDisabled(step == .form && hasEnteredData)
         .onDisappear {
             metadataLookupTask?.cancel()
@@ -111,259 +110,572 @@ struct AddItemFlow: View {
         }
     }
 
+    private var scanner: some View {
+        ScannerStep { value, cameFromCamera in
+            let scannedISBN = apply(identifier: value)
+            metadataSource = cameFromCamera ? "scan" : "manual"
+            step = .form
+            if let scannedISBN {
+                lookupMetadata(for: scannedISBN)
+            }
+        }
+        .navigationTitle("Skanuj kod")
+    }
+
     private var form: some View {
-        Form {
-            metadataStatusSection
+        ScrollView {
+            VStack(alignment: .leading, spacing: LibrarySpacing.xLarge) {
+                LibraryMasthead(
+                    title: metadataSource == "manual" ? "Nowa publikacja" : "Sprawdź publikację",
+                    eyebrow: "KATALOGOWANIE · 02/03",
+                    subtitle: "Najpierw opis, potem miejsce na półce. Dane z katalogu zawsze możesz poprawić.",
+                    compact: true
+                )
 
-            Section("Najważniejsze dane") {
-                TextField("Tytuł publikacji", text: $title)
-                    .submitLabel(.next)
-                TextField("Autorzy (oddziel średnikiem)", text: $authors, axis: .vertical)
-                    .lineLimit(1...3)
+                metadataStatus
 
-                Picker("Rodzaj publikacji", selection: $publicationType) {
-                    ForEach(PublicationType.allCases) { type in
-                        Label(type.label, systemImage: type.symbolName).tag(type)
-                    }
+                if let duplicateMatch {
+                    EditorialStatusBand(
+                        title: "Kolejny egzemplarz",
+                        message: duplicateMessage(for: duplicateMatch),
+                        icon: "square.on.square",
+                        accent: LibraryPalette.orangeText
+                    )
                 }
-                .pickerStyle(.segmented)
-            }
 
-            Section {
-                TextField("Dom / Pokój / Regał / Półka", text: $locationPath)
-                    .textInputAutocapitalization(.words)
-                TextField("Notatki", text: $notes, axis: .vertical)
-                    .lineLimit(2...5)
-            } header: {
-                Label("Gdzie ją odkładasz?", systemImage: "mappin.and.ellipse")
-            } footer: {
-                Text("Ukośniki tworzą hierarchię, np. Dom / Gabinet / Regał A / Półka 2.")
-            }
+                if let duplicateMatch {
+                    existingPublicationSection(duplicateMatch)
+                } else {
+                    mainDataSection
+                }
+                locationSection
 
-            if publicationType == .periodical {
-                Section {
-                    TextField("Numer, np. 8/2026", text: $issueNumber)
-                    TextField("Rocznik / tom", text: $issueVolume)
-                    TextField("Data, np. 2026-08", text: $issueDate)
-                } header: {
-                    Text("Konkretny numer")
-                } footer: {
-                    Text("ISSN opisuje tytuł ciągły, dlatego numer lub datę egzemplarza zapisujemy osobno.")
+                if duplicateMatch == nil, publicationType == .periodical {
+                    periodicalSection
+                }
+
+                if duplicateMatch == nil {
+                    moreDataSection
                 }
             }
+            .padding(.vertical, LibrarySpacing.medium)
+            .editorialPage(width: 760)
+        }
+        .scrollDismissesKeyboard(.interactively)
+        .safeAreaInset(edge: .bottom) {
+            saveBar
+        }
+        .navigationTitle("Dodaj do kolekcji")
+    }
 
-            Section {
-                DisclosureGroup(isExpanded: $showsMoreData) {
-                    VStack(alignment: .leading, spacing: 12) {
-                        Text("Opis bibliograficzny")
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(.secondary)
-                            .accessibilityAddTraits(.isHeader)
+    private var mainDataSection: some View {
+        VStack(alignment: .leading, spacing: LibrarySpacing.medium) {
+            EditorialSectionHeader(title: "Najważniejsze dane", value: "01")
 
-                        TextField("Podtytuł", text: $subtitle)
-                        TextField("Wydawca", text: $publisher)
-                        HStack {
-                            TextField("Rok wydania", text: $publicationYear)
-                                .keyboardType(.numberPad)
-                            TextField("Język, np. pl", text: $language)
-                                .textInputAutocapitalization(.never)
-                                .autocorrectionDisabled()
-                        }
+            EditorialLabeledTextField(
+                label: "Tytuł publikacji",
+                text: $title,
+                prompt: "Wpisz tytuł"
+            )
 
-                        Divider()
+            EditorialAxisField(
+                label: "Autorzy",
+                text: $authors,
+                prompt: "Oddziel autorów średnikiem",
+                lineLimit: 1...3
+            )
 
-                        Text("Identyfikatory")
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(.secondary)
-                            .accessibilityAddTraits(.isHeader)
-
-                        TextField("ISBN-13", text: $isbn13)
-                            .keyboardType(.numbersAndPunctuation)
-                            .onChange(of: isbn13) { _, newValue in
-                                handleISBNChange(newValue)
-                            }
-
-                        Button {
-                            lookupMetadata(for: isbn13)
-                        } label: {
-                            Label(
-                                metadataLookupState == .loading ? "Pobieranie danych…" : "Pobierz dane z katalogów",
-                                systemImage: "text.magnifyingglass"
-                            )
-                        }
-                        .disabled(normalizedISBN(isbn13) == nil || metadataLookupState == .loading)
-
-                        if publicationType == .periodical {
-                            TextField("ISSN", text: $issn)
-                                .keyboardType(.numbersAndPunctuation)
-                        }
-                        TextField("EAN", text: $ean)
-                            .keyboardType(.numberPad)
-                        if !barcode.isEmpty {
-                            LabeledContent("Zeskanowany kod", value: barcode)
-                                .font(.caption)
-                        }
-                    }
-                    .padding(.top, 10)
-                    .textFieldStyle(.roundedBorder)
-                } label: {
-                    Label("Więcej danych", systemImage: "slider.horizontal.3")
-                        .font(.headline)
+            EditorialPublicationTypeSelector(
+                label: "Rodzaj publikacji",
+                selection: $publicationType,
+                options: PublicationType.allCases.map {
+                    EditorialSelectionOption(value: $0, title: $0.label, symbol: $0.symbolName)
                 }
-            } footer: {
-                Text("Podtytuł, wydawca, rok, język oraz identyfikatory są opcjonalne.")
-            }
+            )
         }
     }
 
-    @ViewBuilder
-    private var metadataStatusSection: some View {
-        Section {
-            switch metadataLookupState {
-            case .idle:
-                metadataStatusCard(
-                    title: barcode.isEmpty ? "Dodajesz ręcznie" : "Kod zeskanowany",
-                    message: barcode.isEmpty
-                        ? "Wpisz tytuł i miejsce przechowywania albo zeskanuj kod."
-                        : "Sprawdź najważniejsze dane i uzupełnij lokalizację.",
-                    systemImage: barcode.isEmpty ? "square.and.pencil" : "barcode",
-                    tint: .blue
-                ) {
-                    rescanButton(title: barcode.isEmpty ? "Skanuj kod" : "Skanuj ponownie")
-                }
+    private func existingPublicationSection(_ match: ExistingPublicationMatch) -> some View {
+        let publication = match.publication
+        let identifier = [publication.isbn13, publication.issn, publication.ean]
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .first { !$0.isEmpty }
 
-            case .loading:
-                metadataStatusCard(
-                    title: "Szukam publikacji",
-                    message: "Sprawdzam Bibliotekę Narodową i Open Library. W tym czasie możesz już uzupełniać formularz.",
-                    systemImage: "text.magnifyingglass",
-                    tint: .blue,
-                    showsProgress: true
-                ) {
-                    rescanButton(title: "Skanuj ponownie")
-                }
+        return VStack(alignment: .leading, spacing: LibrarySpacing.medium) {
+            EditorialSectionHeader(title: "Wspólny opis wydania", value: "TYLKO ODCZYT")
 
-            case .enriched(let source):
-                metadataStatusCard(
-                    title: "Dane znalezione",
-                    message: "Uzupełniono dostępne informacje z \(source.displayName). Sprawdź je przed zapisem.",
-                    systemImage: "checkmark.circle.fill",
-                    tint: .green
-                ) {
-                    rescanButton(title: "Skanuj ponownie")
-                }
+            Text(publication.title)
+                .font(.system(.title2, design: .serif, weight: .bold))
+                .fixedSize(horizontal: false, vertical: true)
 
-            case .noMatch:
-                metadataStatusCard(
-                    title: "Brak rekordu w katalogach",
-                    message: "Połączenie działa, ale tego ISBN nie ma w BN ani Open Library. Wpisz dane ręcznie lub zeskanuj kod ponownie.",
-                    systemImage: "questionmark.circle.fill",
-                    tint: .orange
-                ) {
-                    metadataRetryAndRescanButtons
-                }
-
-            case .failed:
-                metadataStatusCard(
-                    title: "Problem z połączeniem",
-                    message: "Nie udało się pobrać danych z katalogów. Sprawdź internet i spróbuj ponownie — formularz nadal działa ręcznie.",
-                    systemImage: "wifi.exclamationmark",
-                    tint: .red
-                ) {
-                    metadataRetryAndRescanButtons
-                }
-            }
-        }
-        .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
-        .listRowBackground(Color.clear)
-        .listRowSeparator(.hidden)
-    }
-
-    private func metadataStatusCard<Actions: View>(
-        title: String,
-        message: String,
-        systemImage: String,
-        tint: Color,
-        showsProgress: Bool = false,
-        @ViewBuilder actions: () -> Actions
-    ) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .top, spacing: 12) {
-                Group {
-                    if showsProgress {
-                        ProgressView()
-                            .tint(tint)
-                            .accessibilityLabel("Pobieranie danych")
-                    } else {
-                        Image(systemName: systemImage)
-                            .font(.title3.weight(.semibold))
-                            .foregroundStyle(tint)
-                            .accessibilityHidden(true)
-                    }
-                }
-                .frame(width: 28, height: 28)
-
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(title)
-                        .font(.headline)
-                    Text(message)
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
+            if !publication.authorsText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                Text(publication.authorsText)
+                    .font(.system(.body, design: .serif))
+                    .foregroundStyle(LibraryPalette.mutedInk)
+                    .fixedSize(horizontal: false, vertical: true)
             }
 
-            actions()
+            if let identifier {
+                Text(identifier)
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(LibraryPalette.mutedInk)
+            }
+
+            Text("Opis bibliograficzny jest wspólny dla wszystkich kopii, dlatego nie zmieniamy go przy dodawaniu kolejnego egzemplarza. Poniżej uzupełnij tylko miejsce i notatki tej kopii.")
+                .font(.system(.footnote, design: .serif))
+                .lineSpacing(3)
+                .foregroundStyle(LibraryPalette.mutedInk)
+                .fixedSize(horizontal: false, vertical: true)
         }
-        .padding(16)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(tint.opacity(0.1), in: RoundedRectangle(cornerRadius: 16))
-        .overlay {
-            RoundedRectangle(cornerRadius: 16)
-                .stroke(tint.opacity(0.24), lineWidth: 1)
+        .padding(LibrarySpacing.medium)
+        .background(LibraryPalette.ink.opacity(0.045))
+        .overlay(alignment: .leading) {
+            Rectangle().fill(LibraryPalette.orange).frame(width: 4)
         }
         .accessibilityElement(children: .contain)
     }
 
-    private func rescanButton(title: String) -> some View {
-        Button {
-            startRescan()
-        } label: {
-            Label(title, systemImage: "barcode.viewfinder")
+    private var locationSection: some View {
+        VStack(alignment: .leading, spacing: LibrarySpacing.medium) {
+            EditorialSectionHeader(title: "Miejsce egzemplarza", value: "02")
+
+            Text("Zapisz drogę od pomieszczenia do półki. Ukośniki budują hierarchię lokalizacji.")
+                .font(.system(.body, design: .serif))
+                .lineSpacing(3)
+                .foregroundStyle(LibraryPalette.mutedInk)
+
+            EditorialLabeledTextField(
+                label: "Lokalizacja",
+                text: $locationPath,
+                prompt: "Dom / Gabinet / Regał A / Półka 2"
+            )
+            .textInputAutocapitalization(.words)
+
+            if !recentLocations.isEmpty {
+                VStack(alignment: .leading, spacing: 0) {
+                    Text("OSTATNIE MIEJSCA")
+                        .font(.caption2.weight(.bold))
+                        .tracking(1.35)
+                        .foregroundStyle(LibraryPalette.mutedInk)
+                        .padding(.bottom, LibrarySpacing.xSmall)
+
+                    ForEach(recentLocations, id: \.self) { location in
+                        Button {
+                            locationPath = location
+                        } label: {
+                            HStack(spacing: LibrarySpacing.small) {
+                                Text(location.replacingOccurrences(of: "/", with: "›"))
+                                    .font(.footnote)
+                                    .multilineTextAlignment(.leading)
+                                Spacer(minLength: LibrarySpacing.small)
+                                Image(systemName: locationPath == location ? "checkmark" : "arrow.turn.down.left")
+                                    .foregroundStyle(LibraryPalette.orangeText)
+                                    .accessibilityHidden(true)
+                            }
+                            .foregroundStyle(LibraryPalette.ink)
+                            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                            .overlay(alignment: .top) {
+                                Rectangle().fill(LibraryPalette.rule).frame(height: 1)
+                            }
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Użyj lokalizacji: \(location)")
+                    }
+                }
+            }
+
+            EditorialAxisField(
+                label: "Notatki o egzemplarzu",
+                text: $notes,
+                prompt: "Stan, dedykacja lub inne informacje",
+                lineLimit: 2...5
+            )
         }
-        .buttonStyle(.bordered)
     }
 
-    private var metadataRetryAndRescanButtons: some View {
-        HStack(spacing: 10) {
-            Button("Spróbuj ponownie") {
-                lookupMetadata(for: isbn13)
-            }
-            .buttonStyle(.borderedProminent)
-            .disabled(normalizedISBN(isbn13) == nil)
+    private var periodicalSection: some View {
+        VStack(alignment: .leading, spacing: LibrarySpacing.medium) {
+            EditorialSectionHeader(title: "Konkretny numer", value: "PRASA")
 
-            rescanButton(title: "Skanuj ponownie")
+            Text("ISSN opisuje cały tytuł prasowy. Numer lub data rozróżniają egzemplarz, który trzymasz w ręku.")
+                .font(.system(.body, design: .serif))
+                .lineSpacing(3)
+                .foregroundStyle(LibraryPalette.mutedInk)
+
+            EditorialLabeledTextField(
+                label: "Numer",
+                text: $issueNumber,
+                prompt: "np. 8/2026"
+            )
+            EditorialLabeledTextField(
+                label: "Rocznik / tom",
+                text: $issueVolume,
+                prompt: "np. XLII"
+            )
+            EditorialLabeledTextField(
+                label: "Data numeru",
+                text: $issueDate,
+                prompt: "np. 2026-08"
+            )
         }
+    }
+
+    private var moreDataSection: some View {
+        VStack(alignment: .leading, spacing: LibrarySpacing.medium) {
+            DisclosureGroup(isExpanded: $showsMoreData) {
+                VStack(alignment: .leading, spacing: LibrarySpacing.medium) {
+                    EditorialLabeledTextField(label: "Podtytuł", text: $subtitle, prompt: "Opcjonalnie")
+                    EditorialLabeledTextField(label: "Wydawca", text: $publisher, prompt: "Opcjonalnie")
+
+                    ViewThatFits(in: .horizontal) {
+                        HStack(alignment: .top, spacing: LibrarySpacing.small) {
+                            yearField
+                            languageField
+                        }
+                        VStack(alignment: .leading, spacing: LibrarySpacing.medium) {
+                            yearField
+                            languageField
+                        }
+                    }
+
+                    EditorialSectionHeader(title: "Identyfikatory", value: nil, accent: nil)
+
+                    EditorialLabeledTextField(
+                        label: "ISBN-13",
+                        text: $isbn13,
+                        prompt: "978… lub 979…",
+                        keyboardType: .numbersAndPunctuation
+                    )
+                    .onChange(of: isbn13) { _, newValue in
+                        handleISBNChange(newValue)
+                    }
+
+                    EditorialSecondaryButton(
+                        title: metadataLookupState == .loading ? "Pobieranie danych…" : "Pobierz dane z katalogów",
+                        icon: "text.magnifyingglass"
+                    ) {
+                        lookupMetadata(for: isbn13)
+                    }
+                    .disabled(normalizedISBN(isbn13) == nil || metadataLookupState == .loading)
+                    .opacity(normalizedISBN(isbn13) == nil ? 0.5 : 1)
+
+                    if publicationType == .periodical {
+                        EditorialLabeledTextField(
+                            label: "ISSN",
+                            text: $issn,
+                            prompt: "1234-5678",
+                            keyboardType: .numbersAndPunctuation
+                        )
+                    }
+
+                    EditorialLabeledTextField(
+                        label: "EAN",
+                        text: $ean,
+                        prompt: "13 cyfr",
+                        keyboardType: .numberPad
+                    )
+
+                    if !barcode.isEmpty {
+                        HStack {
+                            Text("ZESKANOWANY KOD")
+                                .font(.caption2.weight(.bold))
+                                .tracking(1.2)
+                            Spacer()
+                            Text(barcode)
+                                .font(.caption.monospacedDigit())
+                        }
+                        .padding(.vertical, LibrarySpacing.small)
+                        .overlay(alignment: .top) {
+                            Rectangle().fill(LibraryPalette.rule).frame(height: 1)
+                        }
+                    }
+                }
+                .padding(.top, LibrarySpacing.medium)
+            } label: {
+                HStack {
+                    Text("WIĘCEJ DANYCH")
+                        .font(.caption.weight(.bold))
+                        .tracking(1.6)
+                    Spacer()
+                    Text(showsMoreData ? "ZWIŃ" : "ROZWIŃ")
+                        .font(.caption2.weight(.bold))
+                        .tracking(1.1)
+                        .foregroundStyle(LibraryPalette.orangeText)
+                }
+                .frame(minHeight: 44)
+            }
+            .tint(LibraryPalette.ink)
+        }
+        .padding(LibrarySpacing.medium)
+        .background(LibraryPalette.ink.opacity(0.045))
+        .overlay(alignment: .leading) {
+            Rectangle().fill(LibraryPalette.orange).frame(width: 4)
+        }
+    }
+
+    private var yearField: some View {
+        EditorialLabeledTextField(
+            label: "Rok wydania",
+            text: $publicationYear,
+            prompt: "np. 2026",
+            keyboardType: .numberPad
+        )
+    }
+
+    private var languageField: some View {
+        EditorialLabeledTextField(
+            label: "Język",
+            text: $language,
+            prompt: "np. pl"
+        )
+        .textInputAutocapitalization(.never)
+        .autocorrectionDisabled()
+    }
+
+    private var saveBar: some View {
+        VStack(spacing: 0) {
+            Rectangle()
+                .fill(LibraryPalette.rule)
+                .frame(height: 1)
+
+            EditorialPrimaryButton(title: duplicateMatch == nil ? "Zapisz egzemplarz" : "Dodaj kolejny egzemplarz") {
+                save()
+            }
+            .disabled(!canSave)
+            .opacity(canSave ? 1 : 0.5)
+            .padding(.vertical, LibrarySpacing.small)
+            .editorialPage(width: 760)
+        }
+        .background(LibraryPalette.paper)
+    }
+
+    private var savedConfirmation: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: LibrarySpacing.xLarge) {
+                LibraryMasthead(
+                    title: "Na półce",
+                    eyebrow: "ZAPISANO · 03/03",
+                    subtitle: "\(savedTitle) jest już w Twojej kolekcji."
+                )
+
+                EditorialStatusBand(
+                    title: savedUsedExistingPublication ? "Dodano kolejny egzemplarz" : "Nowa publikacja w katalogu",
+                    message: savedLocation.isEmpty
+                        ? "Nie przypisano lokalizacji. Możesz ją uzupełnić później."
+                        : "Miejsce: \(savedLocation.replacingOccurrences(of: "/", with: "›"))",
+                    icon: "checkmark",
+                    accent: LibraryPalette.orangeText
+                )
+
+                EditorialMetricStrip(metrics: [
+                    EditorialMetric(value: String(savedCopyCount), label: savedCopyCount == 1 ? "egzemplarz" : "egzemplarze"),
+                    EditorialMetric(value: locationPath.isEmpty ? "—" : "✓", label: "lokalizacja")
+                ])
+
+                VStack(alignment: .leading, spacing: LibrarySpacing.small) {
+                    EditorialSectionHeader(title: "Co dalej", value: nil)
+
+                    EditorialPrimaryButton(title: "Skanuj następną", icon: "barcode.viewfinder") {
+                        prepareNextPublication(startWithScanner: true)
+                    }
+
+                    EditorialSecondaryButton(title: "Dodaj ręcznie", icon: "square.and.pencil") {
+                        prepareNextPublication(startWithScanner: false)
+                    }
+
+                    EditorialActionRow(
+                        title: "Wróć do kolekcji",
+                        detail: "Zakończ seryjne katalogowanie",
+                        icon: "checkmark"
+                    ) {
+                        dismiss()
+                    }
+                }
+            }
+            .padding(.vertical, LibrarySpacing.large)
+            .editorialPage(width: 720)
+        }
+        .navigationTitle("Zapisano")
+    }
+
+    @ViewBuilder
+    private var metadataStatus: some View {
+        VStack(alignment: .leading, spacing: LibrarySpacing.small) {
+            switch metadataLookupState {
+            case .idle:
+                EditorialStatusBand(
+                    title: barcode.isEmpty ? "Opis ręczny" : "Kod odczytany",
+                    message: barcode.isEmpty
+                        ? "Wpisz tytuł i miejsce albo wróć do skanera."
+                        : "Sprawdź opis i wskaż miejsce przechowywania.",
+                    icon: barcode.isEmpty ? "square.and.pencil" : "barcode"
+                )
+                EditorialActionRow(
+                    title: barcode.isEmpty ? "Zeskanuj kod" : "Skanuj ponownie",
+                    icon: "barcode.viewfinder",
+                    accent: LibraryPalette.orangeText,
+                    action: startRescan
+                )
+
+            case .loading:
+                EditorialStatusBand(
+                    title: "Szukam publikacji",
+                    message: "Sprawdzam Bibliotekę Narodową i Open Library. Formularz działa w tym czasie normalnie.",
+                    icon: "text.magnifyingglass"
+                )
+                ProgressView()
+                    .tint(LibraryPalette.orangeText)
+                    .accessibilityLabel("Pobieranie danych")
+                EditorialActionRow(
+                    title: "Skanuj ponownie",
+                    icon: "barcode.viewfinder",
+                    accent: LibraryPalette.orangeText,
+                    action: startRescan
+                )
+
+            case .enriched(let source):
+                EditorialStatusBand(
+                    title: "Dane znalezione · \(source.displayName)",
+                    message: "Uzupełniłem dostępny opis. Sprawdź go przed zapisem.",
+                    icon: "checkmark"
+                )
+                EditorialActionRow(
+                    title: "Skanuj ponownie",
+                    icon: "barcode.viewfinder",
+                    accent: LibraryPalette.orangeText,
+                    action: startRescan
+                )
+
+            case .noMatch:
+                EditorialStatusBand(
+                    title: "Brak rekordu w katalogach",
+                    message: "Połączenie działa, ale tego ISBN nie ma w BN ani Open Library. Uzupełnij opis ręcznie albo spróbuj jeszcze raz.",
+                    icon: "questionmark"
+                )
+                retryAndRescanActions
+
+            case .failed:
+                EditorialStatusBand(
+                    title: "Problem z połączeniem",
+                    message: "Nie udało się pobrać danych. Formularz nadal działa ręcznie.",
+                    icon: "wifi.exclamationmark"
+                )
+                retryAndRescanActions
+            }
+        }
+    }
+
+    private var retryAndRescanActions: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 0) {
+                metadataAction(title: "Spróbuj ponownie", icon: "arrow.clockwise") {
+                    lookupMetadata(for: isbn13)
+                }
+                .disabled(normalizedISBN(isbn13) == nil)
+
+                Rectangle()
+                    .fill(LibraryPalette.rule)
+                    .frame(width: 1, height: 30)
+
+                metadataAction(title: "Skanuj ponownie", icon: "barcode.viewfinder", action: startRescan)
+            }
+
+            VStack(spacing: 0) {
+                metadataAction(title: "Spróbuj ponownie", icon: "arrow.clockwise") {
+                    lookupMetadata(for: isbn13)
+                }
+                .disabled(normalizedISBN(isbn13) == nil)
+
+                metadataAction(title: "Skanuj ponownie", icon: "barcode.viewfinder", action: startRescan)
+            }
+        }
+    }
+
+    private func metadataAction(
+        title: String,
+        icon: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            HStack(spacing: 7) {
+                Text(title.uppercased())
+                    .font(.caption2.weight(.bold))
+                    .tracking(1.05)
+                    .multilineTextAlignment(.leading)
+                Spacer(minLength: LibrarySpacing.xSmall)
+                Image(systemName: icon)
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(LibraryPalette.orangeText)
+                    .accessibilityHidden(true)
+            }
+            .foregroundStyle(LibraryPalette.ink)
+            .padding(.horizontal, LibrarySpacing.small)
+            .frame(maxWidth: .infinity, minHeight: 44)
+            .overlay(alignment: .top) {
+                Rectangle().fill(LibraryPalette.rule).frame(height: 1)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(title)
+    }
+
+    private var duplicateMatch: ExistingPublicationMatch? {
+        ExistingPublicationMatcher.match(
+            in: existingItems,
+            type: publicationType,
+            isbn13: isbn13,
+            issn: issn,
+            ean: ean,
+            issueNumber: issueNumber,
+            issueDate: issueDate
+        )
+    }
+
+    private var canSave: Bool {
+        duplicateMatch != nil || !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private var recentLocations: [String] {
+        var seen = Set<String>()
+        return existingItems.compactMap { item in
+            let value = item.locationPathText.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !value.isEmpty, seen.insert(value).inserted else { return nil }
+            return value
+        }
+        .prefix(3)
+        .map { $0 }
+    }
+
+    private func duplicateMessage(for match: ExistingPublicationMatch) -> String {
+        let label = match.copyCount == 1 ? "egzemplarz" : "egzemplarze"
+        return "W kolekcji są już \(match.copyCount) \(label) tego wydania. Zapis doda następną kopię i zachowa wspólny opis bibliograficzny."
     }
 
     private func startRescan() {
+        clearPublicationFields(preserveCopyFields: true)
+        step = .scanner
+    }
+
+    private func prepareNextPublication(startWithScanner: Bool) {
+        clearPublicationFields(preserveCopyFields: false)
+        step = startWithScanner ? .scanner : .form
+    }
+
+    private func clearPublicationFields(preserveCopyFields: Bool) {
         metadataLookupTask?.cancel()
         metadataLookupTask = nil
         metadataLookupISBN = nil
         metadataLookupState = .idle
 
-        let hadCatalogMetadata = metadataSource == BookMetadataSource.nationalLibrary.rawValue ||
-            metadataSource == BookMetadataSource.openLibrary.rawValue
-        if hadCatalogMetadata {
-            title = ""
-            subtitle = ""
-            authors = ""
-            publisher = ""
-            publicationYear = ""
-            language = "pl"
-        }
-
         publicationType = .book
+        title = ""
+        subtitle = ""
+        authors = ""
+        language = "pl"
+        publisher = ""
+        publicationYear = ""
         isbn13 = ""
         issn = ""
         ean = ""
@@ -372,7 +684,13 @@ struct AddItemFlow: View {
         issueVolume = ""
         issueDate = ""
         metadataSource = "manual"
-        step = .scanner
+        validationMessage = nil
+        showsMoreData = false
+
+        if !preserveCopyFields {
+            // Lokalizacja zostaje: to najważniejsze przy seryjnym skanowaniu półki.
+            notes = ""
+        }
     }
 
     private var hasEnteredData: Bool {
@@ -500,21 +818,6 @@ struct AddItemFlow: View {
 
     private func save() {
         let cleanTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !cleanTitle.isEmpty else {
-            validationMessage = "Tytuł jest wymagany."
-            return
-        }
-
-        let cleanYear = publicationYear.trimmingCharacters(in: .whitespacesAndNewlines)
-        let year: Int?
-        if cleanYear.isEmpty {
-            year = nil
-        } else if let value = Int(cleanYear), (1...9999).contains(value) {
-            year = value
-        } else {
-            validationMessage = "Rok wydania powinien być liczbą od 1 do 9999."
-            return
-        }
 
         var normalizedISBN = isbn13.trimmingCharacters(in: .whitespacesAndNewlines)
         if !normalizedISBN.isEmpty {
@@ -538,40 +841,85 @@ struct AddItemFlow: View {
             }
         }
 
-        let now = Date.now
-        let publication = Publication(
+        let match = ExistingPublicationMatcher.match(
+            in: existingItems,
             type: publicationType,
-            title: cleanTitle,
-            subtitle: subtitle.trimmingCharacters(in: .whitespacesAndNewlines),
-            authorsText: authors.trimmingCharacters(in: .whitespacesAndNewlines),
-            language: language.trimmingCharacters(in: .whitespacesAndNewlines),
-            publisher: publisher.trimmingCharacters(in: .whitespacesAndNewlines),
-            publicationYear: year,
             isbn13: normalizedISBN,
-            issn: issn.trimmingCharacters(in: .whitespacesAndNewlines),
+            issn: issn,
             ean: normalizedEAN,
-            barcode: barcode,
-            issueNumber: issueNumber.trimmingCharacters(in: .whitespacesAndNewlines),
-            issueVolume: issueVolume.trimmingCharacters(in: .whitespacesAndNewlines),
-            issueDate: issueDate.trimmingCharacters(in: .whitespacesAndNewlines),
-            metadataSource: metadataSource,
-            createdAt: now,
-            updatedAt: now
+            issueNumber: issueNumber,
+            issueDate: issueDate
         )
+
+        guard match != nil || !cleanTitle.isEmpty else {
+            validationMessage = "Tytuł jest wymagany."
+            return
+        }
+
+        let cleanYear = publicationYear.trimmingCharacters(in: .whitespacesAndNewlines)
+        let year: Int?
+        if match != nil || cleanYear.isEmpty {
+            year = nil
+        } else if let value = Int(cleanYear), (1...9999).contains(value) {
+            year = value
+        } else {
+            validationMessage = "Rok wydania powinien być liczbą od 1 do 9999."
+            return
+        }
+
+        let now = Date.now
+        let publication: Publication
+        let insertedNewPublication: Bool
+
+        if let match {
+            publication = match.publication
+            insertedNewPublication = false
+        } else {
+            publication = Publication(
+                type: publicationType,
+                title: cleanTitle,
+                subtitle: subtitle.trimmingCharacters(in: .whitespacesAndNewlines),
+                authorsText: authors.trimmingCharacters(in: .whitespacesAndNewlines),
+                language: language.trimmingCharacters(in: .whitespacesAndNewlines),
+                publisher: publisher.trimmingCharacters(in: .whitespacesAndNewlines),
+                publicationYear: year,
+                isbn13: normalizedISBN,
+                issn: issn.trimmingCharacters(in: .whitespacesAndNewlines),
+                ean: normalizedEAN,
+                barcode: barcode,
+                issueNumber: issueNumber.trimmingCharacters(in: .whitespacesAndNewlines),
+                issueVolume: issueVolume.trimmingCharacters(in: .whitespacesAndNewlines),
+                issueDate: issueDate.trimmingCharacters(in: .whitespacesAndNewlines),
+                metadataSource: metadataSource,
+                createdAt: now,
+                updatedAt: now
+            )
+            modelContext.insert(publication)
+            insertedNewPublication = true
+        }
+
+        let cleanLocation = locationPath.trimmingCharacters(in: .whitespacesAndNewlines)
         let item = OwnedItem(
             publication: publication,
-            locationPathText: locationPath.trimmingCharacters(in: .whitespacesAndNewlines),
+            locationPathText: cleanLocation,
             notes: notes.trimmingCharacters(in: .whitespacesAndNewlines),
             addedAt: now,
             updatedAt: now
         )
-
-        modelContext.insert(publication)
         modelContext.insert(item)
+
         do {
             try modelContext.save()
-            dismiss()
+            savedTitle = publication.title
+            savedLocation = cleanLocation
+            savedCopyCount = (match?.copyCount ?? 0) + 1
+            savedUsedExistingPublication = match != nil
+            step = .saved
         } catch {
+            modelContext.delete(item)
+            if insertedNewPublication {
+                modelContext.delete(publication)
+            }
             validationMessage = "Nie udało się zapisać publikacji: \(error.localizedDescription)"
         }
     }

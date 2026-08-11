@@ -9,6 +9,8 @@ struct ScannerStep: View {
     @State private var manualCode = ""
     @State private var scannerBecameUnavailable = false
     @State private var validationMessage: String?
+    @State private var showsPrivacyInformation = false
+    @FocusState private var manualCodeIsFocused: Bool
 
     private var cameraScannerAvailable: Bool {
         DataScannerViewController.isSupported
@@ -27,86 +29,198 @@ struct ScannerStep: View {
                     onRejected: showValidationError,
                     onUnavailable: { scannerBecameUnavailable = true }
                 )
-                .ignoresSafeArea(edges: .bottom)
+                .ignoresSafeArea()
 
-                VStack {
-                    VStack(spacing: 4) {
-                        Text("Znajdź kod z tyłu okładki")
-                            .font(.callout.weight(.semibold))
-                        Text("Zeskanuj 13 cyfr: 978/979 dla książki albo 977 dla prasy")
-                            .font(.caption)
-                    }
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 10)
-                        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14))
-                        .padding(.top, 16)
-                        .accessibilityElement(children: .combine)
-                        .accessibilityLabel("Zeskanuj kod z tylnej okładki. Kod książki zaczyna się od 978 lub 979, a kod prasy od 977.")
-                        .accessibilityIdentifier("scanner.cameraInstruction")
-                    Spacer()
-                }
+                cameraOverlay
             } else {
-                ContentUnavailableView {
-                    Label("Skaner aparatu jest niedostępny", systemImage: "camera.fill")
-                } description: {
-                    Text("Wpisz poniżej 13-cyfrowy kod z tylnej okładki: 978/979 dla książki albo 977 dla prasy.")
-                }
+                unavailableCameraMessage
             }
         }
-        .background(Color.black.opacity(cameraScannerAvailable ? 1 : 0.04))
-        .safeAreaInset(edge: .bottom) {
-            VStack(alignment: .leading, spacing: 10) {
-                Text("Kod ręcznie")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
+        .background(cameraScannerAvailable ? Color.black : LibraryPalette.paper)
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            manualEntryPanel
+        }
+        .libraryLightAppearance()
+    }
 
-                HStack {
-                    TextField("ISBN 978/979 lub kod prasy 977", text: $manualCode)
-                        .textFieldStyle(.roundedBorder)
-                        .keyboardType(.numberPad)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                        .submitLabel(.done)
-                        .onSubmit(submitManualCode)
-                        .onChange(of: manualCode) { _, _ in
-                            validationMessage = nil
-                        }
-                        .accessibilityLabel("Kod z tylnej okładki")
-                        .accessibilityHint("Wpisz 13-cyfrowy ISBN zaczynający się od 978 lub 979 albo kod prasy zaczynający się od 977.")
-                        .accessibilityIdentifier("scanner.manualCode")
+    private var cameraOverlay: some View {
+        VStack(spacing: 0) {
+            scannerInstruction
+                .padding(.top, LibrarySpacing.small)
 
-                    Button("Dalej", action: submitManualCode)
-                        .buttonStyle(.borderedProminent)
-                        .disabled(manualCode.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                        .accessibilityHint("Sprawdza kod i przechodzi dalej, jeśli jest poprawny.")
-                        .accessibilityIdentifier("scanner.submitManualCode")
-                }
+            Spacer(minLength: LibrarySpacing.medium)
 
-                if let validationMessage {
-                    Label(validationMessage, systemImage: "exclamationmark.triangle.fill")
-                        .font(.footnote)
-                        .foregroundStyle(.red)
+            ScannerTargetFrame()
+                .frame(maxWidth: 420)
+                .aspectRatio(1.65, contentMode: .fit)
+                .padding(.horizontal, LibrarySpacing.large)
+                .accessibilityHidden(true)
+
+            Spacer(minLength: LibrarySpacing.large)
+        }
+        .editorialPage(width: LibrarySpacing.readerWidth)
+    }
+
+    private var scannerInstruction: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Text("KOD Z TYŁU OKŁADKI")
+                .font(.caption2.weight(.bold))
+                .tracking(1.45)
+            Text("Ustaw w ramce 13 cyfr: 978/979 dla książki albo 977 dla prasy.")
+                .font(.system(.footnote, design: .serif))
+                .lineSpacing(2)
+        }
+        .foregroundStyle(LibraryPalette.ink)
+        .padding(.horizontal, LibrarySpacing.medium)
+        .padding(.vertical, 14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(LibraryPalette.paper.opacity(0.96))
+        .overlay(alignment: .leading) {
+            Rectangle()
+                .fill(LibraryPalette.orange)
+                .frame(width: 4)
+        }
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(LibraryPalette.ink.opacity(0.3))
+                .frame(height: 1)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Zeskanuj kod z tylnej okładki. Kod książki zaczyna się od 978 lub 979, a kod prasy od 977.")
+        .accessibilityIdentifier("scanner.cameraInstruction")
+    }
+
+    private var unavailableCameraMessage: some View {
+        ZStack {
+            PaperBackground()
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: LibrarySpacing.medium) {
+                    Text("WPISZ KOD RĘCZNIE")
+                        .font(.caption.weight(.bold))
+                        .tracking(1.7)
+                        .foregroundStyle(LibraryPalette.orangeText)
+
+                    Text("Aparat nie jest dostępny.")
+                        .font(.system(.largeTitle, design: .serif, weight: .bold))
+                        .fontWidth(.condensed)
+                        .foregroundStyle(LibraryPalette.ink)
                         .fixedSize(horizontal: false, vertical: true)
-                        .accessibilityElement(children: .combine)
-                        .accessibilityLabel("Błąd kodu")
-                        .accessibilityValue(validationMessage)
-                        .accessibilityIdentifier("scanner.validationMessage")
-                }
 
-                Text("Po rozpoznaniu ISBN aplikacja wyśle tylko ten numer do Biblioteki Narodowej, a przy braku wyniku — do Open Library. Kod prasy 977 uzupełni ISSN. Lokalizacja i notatki pozostają na urządzeniu.")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
+                    Rectangle()
+                        .fill(LibraryPalette.ink)
+                        .frame(width: 76, height: 2)
+
+                    Text("Kod znajdziesz przy kodzie kreskowym z tyłu okładki. Pole poniżej przyjmuje ISBN książki i kod EAN prasy.")
+                        .font(.system(.body, design: .serif))
+                        .lineSpacing(4)
+                        .foregroundStyle(LibraryPalette.mutedInk)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .editorialPage(width: 560)
+                .padding(.vertical, LibrarySpacing.large)
             }
-            .padding()
-            .background(.bar)
+            .scrollIndicators(.hidden)
         }
+    }
+
+    private var manualEntryPanel: some View {
+        ViewThatFits(in: .vertical) {
+            manualPanelContent
+
+            ScrollView {
+                manualPanelContent
+            }
+            .frame(minHeight: 240, maxHeight: 340)
+            .scrollDismissesKeyboard(.interactively)
+        }
+        .frame(maxWidth: LibrarySpacing.readerWidth)
+        .frame(maxWidth: .infinity)
+        .background(LibraryPalette.paper)
+        .overlay(alignment: .top) {
+            Rectangle()
+                .fill(LibraryPalette.ink)
+                .frame(height: 1)
+        }
+    }
+
+    private var manualPanelContent: some View {
+        VStack(alignment: .leading, spacing: LibrarySpacing.small) {
+            Text("KOD RĘCZNIE")
+                .font(.caption2.weight(.bold))
+                .tracking(1.55)
+                .foregroundStyle(LibraryPalette.mutedInk)
+
+            TextField("ISBN 978/979 lub kod prasy 977", text: $manualCode)
+                .font(.body.monospacedDigit())
+                .foregroundStyle(LibraryPalette.ink)
+                .keyboardType(.numberPad)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .submitLabel(.done)
+                .focused($manualCodeIsFocused)
+                .onSubmit(submitManualCode)
+                .onChange(of: manualCode) { _, _ in
+                    validationMessage = nil
+                }
+                .padding(.horizontal, 14)
+                .frame(minHeight: 50)
+                .background(LibraryPalette.warmPaper.opacity(0.72))
+                .overlay {
+                    RoundedRectangle(cornerRadius: LibraryRadius.small)
+                        .stroke(validationMessage == nil ? LibraryPalette.rule : Color.red.opacity(0.8), lineWidth: 1)
+                }
+                .clipShape(RoundedRectangle(cornerRadius: LibraryRadius.small))
+                .accessibilityLabel("Kod z tylnej okładki")
+                .accessibilityHint("Wpisz 13-cyfrowy ISBN zaczynający się od 978 lub 979 albo kod prasy zaczynający się od 977.")
+                .accessibilityIdentifier("scanner.manualCode")
+
+            if let validationMessage {
+                Label(validationMessage, systemImage: "exclamationmark.triangle.fill")
+                    .font(.footnote)
+                    .foregroundStyle(.red)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityElement(children: .combine)
+                    .accessibilityLabel("Błąd kodu")
+                    .accessibilityValue(validationMessage)
+                    .accessibilityIdentifier("scanner.validationMessage")
+            }
+
+            EditorialPrimaryButton(title: "Dalej", icon: "arrow.right", action: submitManualCode)
+                .disabled(isManualCodeEmpty)
+                .opacity(isManualCodeEmpty ? 0.5 : 1)
+                .accessibilityHint("Sprawdza kod i przechodzi dalej, jeśli jest poprawny.")
+                .accessibilityIdentifier("scanner.submitManualCode")
+
+            DisclosureGroup(isExpanded: $showsPrivacyInformation) {
+                Text("Po rozpoznaniu ISBN aplikacja wyśle tylko ten numer do Biblioteki Narodowej, a przy braku wyniku — do Open Library. Kod prasy 977 uzupełni ISSN. Lokalizacja i notatki pozostają na urządzeniu.")
+                    .font(.caption)
+                    .foregroundStyle(LibraryPalette.mutedInk)
+                    .lineSpacing(2)
+                    .padding(.top, LibrarySpacing.xSmall)
+                    .fixedSize(horizontal: false, vertical: true)
+            } label: {
+                Label("Jak używamy kodu", systemImage: "info.circle")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(LibraryPalette.ink)
+                    .frame(minHeight: 44)
+            }
+            .tint(LibraryPalette.orangeText)
+        }
+        .padding(.horizontal, LibrarySpacing.page)
+        .padding(.top, LibrarySpacing.medium)
+        .padding(.bottom, LibrarySpacing.small)
+    }
+
+    private var isManualCodeEmpty: Bool {
+        manualCode.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     private func submitManualCode() {
         switch ScannerCodeValidator.validate(manualCode) {
         case .accepted(let value):
             validationMessage = nil
+            manualCodeIsFocused = false
             UINotificationFeedbackGenerator().notificationOccurred(.success)
             onCode(value, false)
         case .rejected(let message):
@@ -118,6 +232,47 @@ struct ScannerStep: View {
         validationMessage = message
         UINotificationFeedbackGenerator().notificationOccurred(.error)
         UIAccessibility.post(notification: .announcement, argument: message)
+    }
+}
+
+private struct ScannerTargetFrame: View {
+    var body: some View {
+        ZStack {
+            ScannerCornerShape()
+                .stroke(Color.white, style: StrokeStyle(lineWidth: 3, lineCap: .square, lineJoin: .miter))
+                .shadow(color: .black.opacity(0.42), radius: 2, y: 1)
+
+            Rectangle()
+                .fill(LibraryPalette.orange)
+                .frame(height: 2)
+                .padding(.horizontal, LibrarySpacing.medium)
+                .shadow(color: .black.opacity(0.25), radius: 1, y: 1)
+        }
+    }
+}
+
+private struct ScannerCornerShape: Shape {
+    func path(in rect: CGRect) -> Path {
+        let corner = min(42, min(rect.width, rect.height) * 0.26)
+        var path = Path()
+
+        path.move(to: CGPoint(x: rect.minX, y: rect.minY + corner))
+        path.addLine(to: CGPoint(x: rect.minX, y: rect.minY))
+        path.addLine(to: CGPoint(x: rect.minX + corner, y: rect.minY))
+
+        path.move(to: CGPoint(x: rect.maxX - corner, y: rect.minY))
+        path.addLine(to: CGPoint(x: rect.maxX, y: rect.minY))
+        path.addLine(to: CGPoint(x: rect.maxX, y: rect.minY + corner))
+
+        path.move(to: CGPoint(x: rect.maxX, y: rect.maxY - corner))
+        path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY))
+        path.addLine(to: CGPoint(x: rect.maxX - corner, y: rect.maxY))
+
+        path.move(to: CGPoint(x: rect.minX + corner, y: rect.maxY))
+        path.addLine(to: CGPoint(x: rect.minX, y: rect.maxY))
+        path.addLine(to: CGPoint(x: rect.minX, y: rect.maxY - corner))
+
+        return path
     }
 }
 
