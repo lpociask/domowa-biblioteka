@@ -4,6 +4,7 @@ import Vision
 import VisionKit
 
 struct ScannerStep: View {
+    let currentLocation: String?
     let onCode: (_ value: String, _ cameFromCamera: Bool) -> Void
 
     @State private var manualCode = ""
@@ -11,6 +12,15 @@ struct ScannerStep: View {
     @State private var validationMessage: String?
     @State private var showsPrivacyInformation = false
     @FocusState private var manualCodeIsFocused: Bool
+
+    init(
+        currentLocation: String? = nil,
+        onCode: @escaping (_ value: String, _ cameFromCamera: Bool) -> Void
+    ) {
+        let cleanLocation = currentLocation?.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.currentLocation = cleanLocation?.isEmpty == false ? cleanLocation : nil
+        self.onCode = onCode
+    }
 
     private var cameraScannerAvailable: Bool {
         DataScannerViewController.isSupported
@@ -146,6 +156,34 @@ struct ScannerStep: View {
 
     private var manualPanelContent: some View {
         VStack(alignment: .leading, spacing: LibrarySpacing.small) {
+            if let currentLocation {
+                HStack(alignment: .top, spacing: LibrarySpacing.small) {
+                    Image(systemName: "mappin")
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(LibraryPalette.orangeText)
+                        .frame(width: 24, height: 24)
+                        .accessibilityHidden(true)
+
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("BIEŻĄCA PÓŁKA")
+                            .font(.caption2.weight(.bold))
+                            .tracking(1.35)
+                        Text(currentLocation)
+                            .font(.system(.footnote, design: .serif, weight: .semibold))
+                            .foregroundStyle(LibraryPalette.mutedInk)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                .overlay(alignment: .bottom) {
+                    Rectangle().fill(LibraryPalette.rule).frame(height: 1)
+                }
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel("Bieżąca półka")
+                .accessibilityValue(currentLocation)
+                .accessibilityIdentifier("scanner.currentLocation")
+            }
+
             Text("KOD RĘCZNIE")
                 .font(.caption2.weight(.bold))
                 .tracking(1.55)

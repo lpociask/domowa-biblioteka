@@ -44,7 +44,7 @@ struct AddItemFlow: View {
     @State private var issueNumber = ""
     @State private var issueVolume = ""
     @State private var issueDate = ""
-    @State private var locationPath = ""
+    @State private var catalogingSession = CatalogingSession()
     @State private var notes = ""
     @State private var metadataSource = "manual"
     @State private var validationMessage: String?
@@ -111,7 +111,7 @@ struct AddItemFlow: View {
     }
 
     private var scanner: some View {
-        ScannerStep { value, cameFromCamera in
+        ScannerStep(currentLocation: currentLocationDisplay) { value, cameFromCamera in
             let scannedISBN = apply(identifier: value)
             metadataSource = cameFromCamera ? "scan" : "manual"
             step = .form
@@ -246,7 +246,7 @@ struct AddItemFlow: View {
 
             EditorialLabeledTextField(
                 label: "Lokalizacja",
-                text: $locationPath,
+                text: locationTextBinding,
                 prompt: "Dom / Gabinet / Regał A / Półka 2"
             )
             .textInputAutocapitalization(.words)
@@ -261,14 +261,14 @@ struct AddItemFlow: View {
 
                     ForEach(recentLocations, id: \.self) { location in
                         Button {
-                            locationPath = location
+                            catalogingSession.updateLocationText(location)
                         } label: {
                             HStack(spacing: LibrarySpacing.small) {
                                 Text(location.replacingOccurrences(of: "/", with: "›"))
                                     .font(.footnote)
                                     .multilineTextAlignment(.leading)
                                 Spacer(minLength: LibrarySpacing.small)
-                                Image(systemName: locationPath == location ? "checkmark" : "arrow.turn.down.left")
+                                Image(systemName: LocationPath(catalogingSession.locationText) == LocationPath(location) ? "checkmark" : "arrow.turn.down.left")
                                     .foregroundStyle(LibraryPalette.orangeText)
                                     .accessibilityHidden(true)
                             }
@@ -455,7 +455,7 @@ struct AddItemFlow: View {
             VStack(alignment: .leading, spacing: LibrarySpacing.xLarge) {
                 LibraryMasthead(
                     title: "Na półce",
-                    eyebrow: "ZAPISANO · 03/03",
+                    eyebrow: "SESJA PÓŁKI · \(String(format: "%02d", catalogingSession.savedCount))",
                     subtitle: "\(savedTitle) jest już w Twojej kolekcji."
                 )
 
@@ -463,14 +463,14 @@ struct AddItemFlow: View {
                     title: savedUsedExistingPublication ? "Dodano kolejny egzemplarz" : "Nowa publikacja w katalogu",
                     message: savedLocation.isEmpty
                         ? "Nie przypisano lokalizacji. Możesz ją uzupełnić później."
-                        : "Miejsce: \(savedLocation.replacingOccurrences(of: "/", with: "›"))",
+                        : "Miejsce: \(LocationPath(savedLocation).display)",
                     icon: "checkmark",
                     accent: LibraryPalette.orangeText
                 )
 
                 EditorialMetricStrip(metrics: [
                     EditorialMetric(value: String(savedCopyCount), label: savedCopyCount == 1 ? "egzemplarz" : "egzemplarze"),
-                    EditorialMetric(value: locationPath.isEmpty ? "—" : "✓", label: "lokalizacja")
+                    EditorialMetric(value: catalogingSession.canonicalLocation.isEmpty ? "—" : "✓", label: "lokalizacja")
                 ])
 
                 VStack(alignment: .leading, spacing: LibrarySpacing.small) {
@@ -637,12 +637,24 @@ struct AddItemFlow: View {
         duplicateMatch != nil || !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
+    private var locationTextBinding: Binding<String> {
+        Binding(
+            get: { catalogingSession.locationText },
+            set: { catalogingSession.updateLocationText($0) }
+        )
+    }
+
+    private var currentLocationDisplay: String? {
+        let location = LocationPath(catalogingSession.locationText)
+        return location.isEmpty ? nil : location.display
+    }
+
     private var recentLocations: [String] {
-        var seen = Set<String>()
+        var seen = Set<LocationPath>()
         return existingItems.compactMap { item in
-            let value = item.locationPathText.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !value.isEmpty, seen.insert(value).inserted else { return nil }
-            return value
+            let path = LocationPath(item.locationPathText)
+            guard !path.isEmpty, seen.insert(path).inserted else { return nil }
+            return path.canonical
         }
         .prefix(3)
         .map { $0 }
@@ -694,7 +706,7 @@ struct AddItemFlow: View {
     }
 
     private var hasEnteredData: Bool {
-        !title.isEmpty || !authors.isEmpty || !barcode.isEmpty || !locationPath.isEmpty
+        !title.isEmpty || !authors.isEmpty || !barcode.isEmpty || !catalogingSession.locationText.isEmpty
     }
 
     @discardableResult
@@ -898,7 +910,7 @@ struct AddItemFlow: View {
             insertedNewPublication = true
         }
 
-        let cleanLocation = locationPath.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanLocation = LocationPath(catalogingSession.locationText).canonical
         let item = OwnedItem(
             publication: publication,
             locationPathText: cleanLocation,
@@ -910,8 +922,9 @@ struct AddItemFlow: View {
 
         do {
             try modelContext.save()
+            catalogingSession.recordSaved(itemID: item.id, savedAt: now)
             savedTitle = publication.title
-            savedLocation = cleanLocation
+            savedLocation = catalogingSession.canonicalLocation.canonical
             savedCopyCount = (match?.copyCount ?? 0) + 1
             savedUsedExistingPublication = match != nil
             step = .saved

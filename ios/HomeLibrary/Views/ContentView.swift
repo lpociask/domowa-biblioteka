@@ -46,9 +46,9 @@ struct ContentView: View {
     }
 
     private var locationCount: Int {
-        Set(items.compactMap { item -> String? in
-            let value = item.locationPathText.trimmingCharacters(in: .whitespacesAndNewlines)
-            return value.isEmpty ? nil : value.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+        Set(items.compactMap { item -> LocationPath? in
+            let path = LocationPath(item.locationPathText)
+            return path.isEmpty ? nil : path
         }).count
     }
 

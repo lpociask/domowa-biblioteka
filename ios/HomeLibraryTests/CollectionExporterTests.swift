@@ -77,6 +77,31 @@ final class CollectionExporterTests: XCTestCase {
         XCTAssertEqual(first.ownedItems.first?.locationId, second.ownedItems.first?.locationId)
     }
 
+    func testLocationTreeUsesTheSameCaseAndDiacriticInsensitiveIdentityAsTheApp() throws {
+        let publication = Publication(type: .book, title: "Test")
+        let accented = OwnedItem(
+            publication: publication,
+            locationPathText: "Dom / Regał / Półka 1"
+        )
+        let plain = OwnedItem(
+            publication: publication,
+            locationPathText: "dom / Regal / Polka 1"
+        )
+
+        let payload = CollectionExporter.makeExport(
+            items: [accented, plain],
+            collectionID: UUID().uuidString,
+            collectionName: "Test"
+        )
+
+        XCTAssertEqual(payload.locations.count, 3)
+        XCTAssertEqual(payload.ownedItems.count, 2)
+        XCTAssertEqual(
+            try XCTUnwrap(payload.ownedItems.first?.locationId),
+            try XCTUnwrap(payload.ownedItems.last?.locationId)
+        )
+    }
+
     func testEmptyLocationDoesNotCreateSyntheticLocation() {
         let publication = Publication(type: .book, title: "Test")
         let item = OwnedItem(publication: publication, locationPathText: "")

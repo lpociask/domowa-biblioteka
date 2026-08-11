@@ -206,9 +206,7 @@ enum CollectionExporter {
     }
 
     private static func canonicalPath(_ components: [String]) -> String {
-        components
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
-            .joined(separator: "/")
+        LocationPath(segments: components).deduplicationKey
     }
 
     private static func stableUUID(for value: String) -> String {
