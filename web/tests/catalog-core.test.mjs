@@ -72,6 +72,47 @@ test("normalizacja zachowuje rozdział publikacji i wielu egzemplarzy", () => {
   assert.equal(collection.ownedItems[1].status, "loaned");
 });
 
+test("kanoniczna normalizacja emituje całkowity rok i daty ISO 8601", () => {
+  const input = structuredClone(canonical);
+  input.exportedAt = "2026-08-11T14:00:00+02:00";
+  input.publications[0].publicationYear = "2024";
+  input.publications[0].createdAt = "2026-08-10T12:00:00+02:00";
+  const collection = normalizeCollection(input);
+
+  assert.equal(collection.publications[0].publicationYear, 2024);
+  assert.equal(Number.isInteger(collection.publications[0].publicationYear), true);
+  assert.equal(collection.exportedAt, "2026-08-11T12:00:00.000Z");
+  assert.equal(collection.publications[0].createdAt, "2026-08-10T10:00:00.000Z");
+
+  const payload = exportPayload(collection, "2026-08-11T17:00:00+02:00");
+  assert.equal(payload.exportedAt, "2026-08-11T15:00:00.000Z");
+  for (const value of [
+    payload.publications[0].createdAt,
+    payload.publications[0].updatedAt,
+    payload.ownedItems[0].addedAt,
+    payload.ownedItems[0].updatedAt,
+  ]) {
+    assert.match(value, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
+  }
+});
+
+test("kanoniczna normalizacja odrzuca nieprawidłowe lata i daty", () => {
+  for (const invalidYear of [0, 2024.5, 10000, "rok 2024"]) {
+    const input = structuredClone(canonical);
+    input.publications[0].publicationYear = invalidYear;
+    assert.throws(() => normalizeCollection(input), /publicationYear/);
+  }
+
+  const invalidPublicationDate = structuredClone(canonical);
+  invalidPublicationDate.publications[0].createdAt = "2026-02-29T10:00:00Z";
+  assert.throws(() => normalizeCollection(invalidPublicationDate), /createdAt/);
+
+  const invalidItemDate = structuredClone(canonical);
+  invalidItemDate.ownedItems[0].addedAt = "11.08.2026";
+  assert.throws(() => normalizeCollection(invalidItemDate), /addedAt/);
+  assert.throws(() => exportPayload(canonical, "jutro"), /exportedAt/);
+});
+
 test("buduje hierarchiczną ścieżkę lokalizacji i chroni się przed cyklem", () => {
   assert.equal(locationPath("shelf", canonical.locations), "Gabinet / Regał / Półka 2");
   const cyclic = [
@@ -79,6 +120,24 @@ test("buduje hierarchiczną ścieżkę lokalizacji i chroni się przed cyklem", 
     { id: "b", name: "B", type: "shelf", parentId: "a" },
   ];
   assert.match(locationPath("a", cyclic), /A/);
+});
+
+test("normalizacja usuwa nieistniejące locationId i zachowuje ścieżkę zapasową", () => {
+  const input = structuredClone(canonical);
+  input.ownedItems[0].locationId = "missing-location";
+  input.ownedItems[0].locationPath = ["Dom", "Gabinet", "Półka awaryjna"];
+
+  const normalized = normalizeCollection(input);
+  assert.equal(normalized.ownedItems[0].locationId, null);
+  assert.deepEqual(normalized.ownedItems[0].locationPath, [
+    "Dom",
+    "Gabinet",
+    "Półka awaryjna",
+  ]);
+
+  const exported = exportPayload(normalized, "2026-08-11T14:00:00.000Z");
+  assert.equal(exported.ownedItems[0].locationId, null);
+  assert.deepEqual(exported.ownedItems[0].locationPath, normalized.ownedItems[0].locationPath);
 });
 
 test("wyszukiwanie jest niewrażliwe na polskie znaki i obejmuje identyfikator", () => {
@@ -122,6 +181,34 @@ test("import legacy items[] jest tolerowany i mapuje prasę na periodical", () =
   assert.equal(legacy.ownedItems[0].publicationId, legacy.publications[0].id);
 });
 
+test("legacy normalizuje błędny rok i daty do bezpiecznych fallbacków", () => {
+  const legacy = normalizeCollection({
+    name: "Stary eksport",
+    exportedAt: "nie-data",
+    items: [
+      {
+        id: "legacy-copy",
+        title: "Książka bez poprawnych dat",
+        year: "2024.5",
+        createdAt: "wczoraj",
+        updatedAt: "jutro",
+        copy: { addedAt: "brak", updatedAt: "nadal brak" },
+      },
+    ],
+  });
+
+  assert.equal(legacy.publications[0].publicationYear, null);
+  for (const value of [
+    legacy.exportedAt,
+    legacy.publications[0].createdAt,
+    legacy.publications[0].updatedAt,
+    legacy.ownedItems[0].addedAt,
+    legacy.ownedItems[0].updatedAt,
+  ]) {
+    assert.match(value, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
+  }
+});
+
 test("łączenie deduplikuje wydanie, lecz zachowuje różne fizyczne kopie", () => {
   const incoming = structuredClone(canonical);
   incoming.collection = { id: "collection-2", name: "Importowana" };
@@ -135,9 +222,71 @@ test("łączenie deduplikuje wydanie, lecz zachowuje różne fizyczne kopie", ()
     },
   ];
   const merged = mergeCollections(canonical, incoming);
+  assert.deepEqual(merged.collection, canonical.collection);
   assert.equal(merged.publications.length, 1);
   assert.equal(merged.ownedItems.length, 3);
   assert.equal(merged.ownedItems.find((item) => item.id === "copy-3").publicationId, "pub-1");
+});
+
+test("łączenie zachowuje lokalizacje o tej samej nazwie pod różnymi rodzicami", () => {
+  const incoming = structuredClone(canonical);
+  incoming.collection = { id: "collection-salon", name: "Salon" };
+  incoming.locations = [
+    { id: "salon", name: "Salon", type: "room", parentId: null },
+    { id: "salon-shelf", name: "Półka 2", type: "shelf", parentId: "salon" },
+  ];
+  incoming.publications[0].id = "foreign-pub-id";
+  incoming.ownedItems = [
+    {
+      ...incoming.ownedItems[0],
+      id: "copy-salon",
+      publicationId: "foreign-pub-id",
+      locationId: "salon-shelf",
+      locationPath: ["Salon", "Półka 2"],
+    },
+  ];
+
+  const merged = mergeCollections(canonical, incoming);
+  const shelves = merged.locations.filter((location) => location.name === "Półka 2");
+  const salonCopy = merged.ownedItems.find((item) => item.id === "copy-salon");
+
+  assert.equal(shelves.length, 2);
+  assert.notEqual(shelves[0].parentId, shelves[1].parentId);
+  assert.equal(locationPath(salonCopy.locationId, merged.locations), "Salon / Półka 2");
+  assert.equal(locationPath("shelf", merged.locations), "Gabinet / Regał / Półka 2");
+});
+
+test("wspólny fixture przechodzi normalize, export i merge bez utraty semantyki", async () => {
+  const url = new URL("../../fixtures/roundtrip-v1.json", import.meta.url);
+  const fixture = JSON.parse(await readFile(url, "utf8"));
+  const exported = exportPayload(normalizeCollection(fixture), fixture.exportedAt);
+  const incoming = structuredClone(exported);
+  incoming.locations[0].id = "incoming-room";
+  incoming.locations[1].id = "incoming-shelf";
+  incoming.locations[1].parentId = "incoming-room";
+  incoming.ownedItems[0].locationId = "incoming-shelf";
+
+  const merged = mergeCollections(exported, incoming);
+  const roundTripped = normalizeCollection(
+    JSON.parse(JSON.stringify(exportPayload(merged, "2026-08-11T14:00:00.000Z"))),
+  );
+
+  assert.equal(roundTripped.publications.length, 1);
+  assert.equal(roundTripped.ownedItems.length, 1);
+  assert.equal(roundTripped.locations.length, 2);
+  assert.equal(roundTripped.publications[0].id, "publication-with-text-id");
+  assert.equal(roundTripped.ownedItems[0].id, "owned-item-with-text-id");
+  assert.equal(roundTripped.ownedItems[0].publicationId, "publication-with-text-id");
+  assert.equal(roundTripped.publications[0].identifiers.barcode, "FIXTURE-001");
+  assert.deepEqual(roundTripped.publications[0].authors, [
+    "Sacher-Masoch, Leopold von",
+    "Nowak, Anna",
+  ]);
+  assert.equal(roundTripped.ownedItems[0].locationId, "location-shelf");
+  assert.equal(
+    locationPath(roundTripped.ownedItems[0].locationId, roundTripped.locations),
+    "Gabinet / Półka bez ISBN",
+  );
 });
 
 test("dwa numery tego samego ISSN pozostają osobnymi publikacjami", () => {

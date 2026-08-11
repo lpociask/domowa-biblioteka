@@ -1,5 +1,6 @@
 import SwiftData
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct ContentView: View {
     @Environment(\.modelContext) private var modelContext
@@ -13,6 +14,8 @@ struct ContentView: View {
     @State private var addFlowStartsWithScanner = false
     @State private var exportDocument: CollectionJSONDocument?
     @State private var showingExporter = false
+    @State private var showingImporter = false
+    @State private var isImporting = false
     @State private var message: ExportMessage?
 
     private var filteredItems: [OwnedItem] {
@@ -82,6 +85,16 @@ struct ContentView: View {
                             Label("Eksportuj JSON", systemImage: "square.and.arrow.up")
                         }
                         .disabled(items.isEmpty)
+
+                        Button {
+                            showingImporter = true
+                        } label: {
+                            Label(
+                                isImporting ? "Importowanie…" : "Importuj JSON",
+                                systemImage: isImporting ? "hourglass" : "square.and.arrow.down"
+                            )
+                        }
+                        .disabled(isImporting)
                     } label: {
                         Label("Więcej", systemImage: "ellipsis.circle")
                     }
@@ -114,11 +127,59 @@ struct ContentView: View {
                 message = ExportMessage(title: "Nie udało się wyeksportować", details: error.localizedDescription)
             }
         }
+        .fileImporter(
+            isPresented: $showingImporter,
+            allowedContentTypes: [.json],
+            allowsMultipleSelection: false
+        ) { result in
+            switch result {
+            case .failure(let error):
+                guard !isFilePickerCancellation(error) else { return }
+                message = ExportMessage(
+                    title: "Nie udało się zaimportować",
+                    details: error.localizedDescription
+                )
+            case .success(let urls):
+                guard let url = urls.first else {
+                    message = ExportMessage(
+                        title: "Nie udało się zaimportować",
+                        details: CocoaError(.fileNoSuchFile).localizedDescription
+                    )
+                    return
+                }
+
+                isImporting = true
+                Task { @MainActor in
+                    defer { isImporting = false }
+                    do {
+                        let prepared = try await Task.detached(priority: .userInitiated) {
+                            try CollectionImporter.prepare(fileAt: url)
+                        }.value
+                        try Task.checkCancellation()
+
+                        let shouldAdoptCollectionMetadata = items.isEmpty
+                        let report = try CollectionImporter.apply(prepared, into: modelContext)
+                        if shouldAdoptCollectionMetadata {
+                            collectionID = report.collectionID
+                            collectionName = report.collectionName
+                        }
+                        message = ExportMessage(title: "Import zakończony", details: report.summary)
+                    } catch is CancellationError {
+                        // Anulowanie nie jest błędem, który wymaga komunikatu dla użytkownika.
+                    } catch {
+                        message = ExportMessage(
+                            title: "Nie udało się zaimportować",
+                            details: error.localizedDescription
+                        )
+                    }
+                }
+            }
+        }
         .alert(item: $message) { message in
             Alert(title: Text(message.title), message: Text(message.details), dismissButton: .default(Text("OK")))
         }
         .task {
-            if UUID(uuidString: collectionID) == nil {
+            if collectionID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 collectionID = UUID().uuidString
             }
         }
@@ -154,8 +215,9 @@ struct ContentView: View {
     private func prepareExport() {
         do {
             let stableCollectionID: String
-            if UUID(uuidString: collectionID) != nil {
-                stableCollectionID = collectionID
+            let trimmedCollectionID = collectionID.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmedCollectionID.isEmpty {
+                stableCollectionID = trimmedCollectionID
             } else {
                 stableCollectionID = UUID().uuidString
                 collectionID = stableCollectionID
@@ -181,6 +243,15 @@ struct ContentView: View {
         }
         return "egzemplarzy"
     }
+}
+
+private func isFilePickerCancellation(_ error: Error) -> Bool {
+    if error is CancellationError {
+        return true
+    }
+    let cocoaError = error as NSError
+    return cocoaError.domain == NSCocoaErrorDomain
+        && cocoaError.code == CocoaError.Code.userCancelled.rawValue
 }
 
 private struct ItemRow: View {

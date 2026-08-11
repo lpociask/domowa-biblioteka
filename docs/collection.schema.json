@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://example.invalid/domowa-biblioteka/collection.schema.json",
+  "$id": "https://lpociask.github.io/domowa-biblioteka/collection.schema.json",
   "title": "Domowa Biblioteka collection export",
   "type": "object",
   "required": [
@@ -48,7 +48,8 @@
       "required": ["id", "name"],
       "properties": {
         "id": {
-          "type": "string"
+          "type": "string",
+          "minLength": 1
         },
         "name": {
           "type": "string",
@@ -62,7 +63,8 @@
       "required": ["id", "name", "type"],
       "properties": {
         "id": {
-          "type": "string"
+          "type": "string",
+          "minLength": 1
         },
         "name": {
           "type": "string",
@@ -116,7 +118,8 @@
       "required": ["id", "type", "title", "authors", "identifiers", "createdAt", "updatedAt"],
       "properties": {
         "id": {
-          "type": "string"
+          "type": "string",
+          "minLength": 1
         },
         "type": {
           "type": "string",
@@ -172,10 +175,12 @@
       "required": ["id", "publicationId", "locationPath", "status", "addedAt", "updatedAt"],
       "properties": {
         "id": {
-          "type": "string"
+          "type": "string",
+          "minLength": 1
         },
         "publicationId": {
-          "type": "string"
+          "type": "string",
+          "minLength": 1
         },
         "locationId": {
           "type": ["string", "null"]

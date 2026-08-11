@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - "web/**"
+      - "docs/collection.schema.json"
       - ".github/workflows/pages.yml"
   workflow_dispatch:
 
@@ -29,6 +30,9 @@ jobs:
 
       - name: Configure Pages
         uses: actions/configure-pages@v6
+
+      - name: Add the public JSON contract
+        run: cp docs/collection.schema.json web/collection.schema.json
 
       - name: Upload static site
         uses: actions/upload-pages-artifact@v5

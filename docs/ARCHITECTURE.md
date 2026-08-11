@@ -16,9 +16,9 @@ Pierwsza wersja ma potwierdzić trzy rzeczy:
 │ SwiftUI + VisionKit         │
 │ SwiftData (lokalna baza)    │
 └──────────────┬──────────────┘
-               │ eksport iOS → import web
+               │ ręczny import / eksport
                │ collection.json
-               ▼
+               ▼ ▲
 ┌─────────────────────────────┐
 │ Web na GitHub Pages         │
 │ statyczne HTML/CSS/JS       │
@@ -26,7 +26,7 @@ Pierwsza wersja ma potwierdzić trzy rzeczy:
 └─────────────────────────────┘
 ```
 
-GitHub Pages publikuje interfejs, lecz nie przyjmuje bezpiecznie zapisów z aplikacji. W tej fazie nie ma kont, współdzielenia ani automatycznej synchronizacji pomiędzy urządzeniami. Przepływ iOS → web działa przez plik JSON; import tego pliku z powrotem do aplikacji iOS nie należy jeszcze do MVP.
+GitHub Pages publikuje interfejs, lecz nie przyjmuje zapisów z aplikacji. W tej fazie nie ma kont, współdzielenia, chmurowej bazy ani automatycznej synchronizacji pomiędzy urządzeniami. iOS i web wymieniają dane w obie strony wyłącznie przez plik JSON, który użytkownik sam eksportuje, przenosi i importuje.
 
 ## Model domeny
 
@@ -48,18 +48,45 @@ Serial → SerialManifestation → Issue → OwnedItem
 - SwiftData: lokalne, trwałe przechowywanie.
 - VisionKit `DataScannerViewController`: skan kodów na wspieranym urządzeniu.
 - Ręczny fallback: wymagany na symulatorze, starym urządzeniu i dla publikacji bez czytelnego kodu.
-- Eksport JSON: jedyna granica wymiany danych w MVP.
+- Import i eksport JSON: jedyna granica wymiany danych w MVP.
+- Import jest addytywny i idempotentny względem stabilnych identyfikatorów: pomija istniejące publikacje i egzemplarze, nie nadpisuje lokalnych zmian i nie wykonuje usunięć.
+- Zewnętrzne ID są zachowywane przez round-trip, nawet gdy iOS potrzebuje wewnętrznego UUID. Dekodowanie i walidacja importu odbywają się poza głównym wątkiem, przed atomowym zapisem do SwiftData.
 
-Skan powinien zostać zapisany lokalnie natychmiast. Późniejsze wzbogacenie metadanych nie może blokować katalogowania półki.
+Skan natychmiast przechodzi do edytowalnego formularza. Lookup działa asynchronicznie i nie blokuje ręcznego uzupełnienia ani zapisu publikacji.
+
+## Wzbogacanie metadanych książek
+
+```text
+skan lub ręcznie zatwierdzony kod ISBN
+    │ walidacja i normalizacja do ISBN-13
+    ▼
+Biblioteka Narodowa
+    │ brak użytecznego rekordu albo błąd źródła
+    ▼
+Open Library
+    │
+    ▼
+formularz, który użytkownik może poprawić przed zapisem
+```
+
+- Lookup jest uruchamiany przez użytkownika dla pojedynczego ISBN; nie ma działania wsadowego ani wzbogacania w tle.
+- Pierwszy użyteczny wynik kończy kaskadę. Awaria BN nie blokuje próby w Open Library, a formularz zawsze pozwala kontynuować ręcznie.
+- Zmiany wprowadzone w formularzu podczas trwania zapytania nie są nadpisywane odpowiedzią katalogu.
+- Open Library jest eksperymentalnym fallbackiem low-volume. Żądanie używa cache HTTP `returnCacheDataElseLoad` i identyfikującego `User-Agent`; nie jest to trwały cache aplikacyjny ani podstawa do hurtowego pobierania.
+- Do zewnętrznych katalogów trafia znormalizowany ISBN w adresie zapytania. Kolekcja, lokalizacja egzemplarza i notatki pozostają lokalne.
+- `metadata.source` zapisuje źródło zaakceptowanego wyniku jako `bn` lub `openlibrary`.
 
 ## Web
 
 - Brak frameworka i bundlera: mniejszy koszt utrzymania GitHub Pages.
 - Import pliku zgodnego z `schemaVersion: 1`.
+- Eksport tego samego formatu, który może zostać ponownie zaimportowany przez iOS.
 - Lokalne przechowywanie danych w przeglądarce.
 - Wyszukiwanie oraz filtry bez wysyłania prywatnej kolekcji na serwer.
 
 ## Przyszła synchronizacja
+
+Poniższy backend nie jest częścią bieżącego MVP. Do czasu osobnej decyzji po pilocie obowiązuje ręczny transfer pliku JSON, bez własnej chmury.
 
 Docelowy przepływ:
 
@@ -81,6 +108,8 @@ Backend nie może być GitHub Pages. Powinien zapewnić uwierzytelnienie, izolac
 
 - Prawdziwy eksport kolekcji jest ignorowany przez Git.
 - Dane demonstracyjne nie zawierają adresów ani rzeczywistych lokalizacji użytkownika.
+- Aplikacja nie wysyła eksportu automatycznie. Użytkownik wybiera docelowe miejsce pliku i odpowiada za zabezpieczenie ewentualnej kopii chmurowej.
+- Import ma limit 25 MB i sprawdza pełny kontrakt, identyfikatory, daty, referencje oraz graf lokalizacji przed zapisem; ponowny import tego samego pliku nie nadpisuje rekordów o tych samych identyfikatorach.
 - QR lokalizacji w przyszłości zawiera niejawny UUID, nie nazwę pokoju lub adres.
-- Pola pobrane z zewnętrznych źródeł przechowują pochodzenie i czas pobrania.
+- Publikacja przechowuje źródło zaakceptowanych metadanych. Czas pobrania i pochodzenie na poziomie pojedynczego pola wymagają przyszłego rozszerzenia modelu.
 - Ręczne poprawki użytkownika nie są nadpisywane automatycznie.

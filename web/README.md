@@ -24,8 +24,10 @@ Testy korzystają wyłącznie z modułów wbudowanych w Node.js.
 
 - Format wejścia i wyjścia to kanoniczny `collection.json` v1: osobne `publications[]` i `ownedItems[]` pozwalają opisać wiele fizycznych kopii jednego wydania.
 - Importer toleruje starszy format `items[]` i normalizuje go do v1.
+- Kanoniczny v1 wymaga poprawnych dat ISO 8601 i całkowitego roku 1–9999. Podczas scalania te same hierarchiczne lokalizacje są deduplikowane także wtedy, gdy pochodzą z różnych klientów i mają inne ID.
+- Import pliku jest ograniczony do 25 MB, tak samo jak w aplikacji iOS.
 - Bieżąca kolekcja jest przechowywana w `localStorage` pod kluczem `polka.collection.v1`.
-- GitHub Pages serwuje wyłącznie pliki statyczne. Nie wysyła kolekcji do repozytorium i nie synchronizuje jej z iPhone’em. W MVP aplikacja iOS eksportuje JSON do webu, a eksport webowy służy jako kopia lub do przenosin między przeglądarkami. Import do iOS nie jest jeszcze dostępny.
+- GitHub Pages serwuje wyłącznie pliki statyczne. Nie wysyła kolekcji do repozytorium i nie synchronizuje jej automatycznie z iPhone’em. W MVP wspólny plik JSON można eksportować i importować w obie strony między aplikacją iOS a WWW oraz przenosić między przeglądarkami.
 - Interfejs nie pobiera zewnętrznych okładek, więc samo przeglądanie katalogu nie ujawnia listy publikacji zewnętrznym serwerom obrazów.
 
 ## Publikacja na GitHub Pages

@@ -25,6 +25,9 @@ enum PublicationType: String, Codable, CaseIterable, Identifiable {
 @Model
 final class Publication {
     var id: UUID
+    /// Identyfikator z formatu wymiany. Może być UUID albo stabilnym tekstem
+    /// nadanym przez innego klienta, np. stronę WWW.
+    var externalID: String = ""
     var typeRawValue: String
     var title: String
     var subtitle: String
@@ -47,6 +50,7 @@ final class Publication {
 
     init(
         id: UUID = UUID(),
+        externalID: String? = nil,
         type: PublicationType,
         title: String,
         subtitle: String = "",
@@ -66,6 +70,8 @@ final class Publication {
         updatedAt: Date = .now
     ) {
         self.id = id
+        let cleanExternalID = externalID?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        self.externalID = cleanExternalID.isEmpty ? id.uuidString : cleanExternalID
         self.typeRawValue = type.rawValue
         self.title = title
         self.subtitle = subtitle
@@ -92,8 +98,13 @@ final class Publication {
 
     var authors: [String] {
         authorsText
-            .split(whereSeparator: { $0 == ";" || $0 == "," || $0 == "\n" })
+            .split(whereSeparator: { $0 == ";" || $0 == "\n" })
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
+    }
+
+    var exportID: String {
+        let clean = externalID.trimmingCharacters(in: .whitespacesAndNewlines)
+        return clean.isEmpty ? id.uuidString : clean
     }
 }

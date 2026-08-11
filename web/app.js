@@ -12,6 +12,7 @@ import {
 
 const STORAGE_KEY = "polka.collection.v1";
 const VIEW_KEY = "polka.catalog.view";
+const MAX_IMPORT_BYTES = 25 * 1024 * 1024;
 
 const elements = {
   collectionTitle: document.querySelector("#collection-title"),
@@ -371,9 +372,9 @@ function showToast(message, error = false) {
   }, 4200);
 }
 
-function persistCollection() {
-  if (!state.collection) return false;
-  const ok = writeLocalValue(STORAGE_KEY, JSON.stringify(exportPayload(state.collection)));
+function persistCollection(collection = state.collection) {
+  if (!collection) return false;
+  const ok = writeLocalValue(STORAGE_KEY, JSON.stringify(exportPayload(collection)));
   if (!ok) showToast("Nie udało się zapisać kolekcji w tej przeglądarce.", true);
   return ok;
 }
@@ -421,6 +422,9 @@ function exportCollection() {
 
 async function prepareImport(file) {
   try {
+    if (file.size > MAX_IMPORT_BYTES) {
+      throw new TypeError("Plik jest za duży. Maksymalny rozmiar importu to 25 MB.");
+    }
     const parsed = JSON.parse(await file.text());
     const collection = normalizeCollection(parsed);
     const stats = collectionStats(collection);
@@ -437,10 +441,12 @@ async function prepareImport(file) {
 
 function completeImport(mode) {
   if (!state.pendingImport) return;
-  state.collection =
+  const importedCollection =
     mode === "merge" ? mergeCollections(state.collection, state.pendingImport) : state.pendingImport;
+  if (!persistCollection(importedCollection)) return;
+
+  state.collection = importedCollection;
   state.pendingImport = null;
-  persistCollection();
   clearFilters();
   updateLocationOptions();
   render();

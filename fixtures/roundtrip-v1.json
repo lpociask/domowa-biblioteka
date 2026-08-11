@@ -1,0 +1,64 @@
+{
+  "schemaVersion": 1,
+  "exportedAt": "2026-08-11T13:00:00.000Z",
+  "collection": {
+    "id": "collection-shared-fixture",
+    "name": "Wspólny test round-trip"
+  },
+  "locations": [
+    {
+      "id": "location-room",
+      "name": "Gabinet",
+      "type": "room",
+      "parentId": null
+    },
+    {
+      "id": "location-shelf",
+      "name": "Półka bez ISBN",
+      "type": "shelf",
+      "parentId": "location-room"
+    }
+  ],
+  "publications": [
+    {
+      "id": "publication-with-text-id",
+      "type": "book",
+      "title": "Publikacja bez ISBN",
+      "subtitle": null,
+      "authors": [
+        "Sacher-Masoch, Leopold von",
+        "Nowak, Anna"
+      ],
+      "language": "pl",
+      "publisher": "Wydawnictwo Testowe",
+      "publicationYear": 2026,
+      "identifiers": {
+        "isbn13": null,
+        "issn": null,
+        "ean": null,
+        "barcode": "FIXTURE-001"
+      },
+      "issue": null,
+      "metadata": {
+        "source": "fixture"
+      },
+      "createdAt": "2026-08-11T12:00:00.000Z",
+      "updatedAt": "2026-08-11T12:30:00.000Z"
+    }
+  ],
+  "ownedItems": [
+    {
+      "id": "owned-item-with-text-id",
+      "publicationId": "publication-with-text-id",
+      "locationId": "location-shelf",
+      "locationPath": [
+        "Gabinet",
+        "Półka bez ISBN"
+      ],
+      "status": "owned",
+      "notes": "Wspólny przypadek testowy",
+      "addedAt": "2026-08-11T12:10:00.000Z",
+      "updatedAt": "2026-08-11T12:30:00.000Z"
+    }
+  ]
+}
