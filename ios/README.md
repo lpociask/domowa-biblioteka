@@ -5,7 +5,8 @@ Natywny vertical slice dla iOS 17+, bez zewnętrznych zależności. Dane są prz
 ## Zakres MVP
 
 - ręczne dodawanie książek i konkretnych numerów prasy,
-- skanowanie EAN-13 (w tym kodów prasy 977), UPC-E i QR przez VisionKit,
+- skanowanie publikacyjnych EAN-13: ISBN 978/979 i kodów prasy 977 przez VisionKit,
+- QR jest akceptowany tylko wtedy, gdy cała jego treść jest poprawnym ISBN; pozostałe kody nie zamykają skanera i dostają czytelny komunikat,
 - ręczny fallback skanera (działa również na symulatorze),
 - lista, wyszukiwanie, szczegóły i usuwanie egzemplarzy,
 - lokalizacja jako ścieżka, np. `Dom / Gabinet / Regał A / Półka 2`,
@@ -21,7 +22,7 @@ Główny kod 977 nie wystarcza do pewnego rozpoznania konkretnego numeru czasopi
 
 ## Lookup metadanych
 
-Po zeskanowaniu lub zatwierdzeniu prawidłowego ISBN w ręcznym fallbacku skanera aplikacja normalizuje ISBN-10/ISBN-13 i wykonuje pojedynczy lookup. Najpierw pyta API Biblioteki Narodowej. Open Library jest sprawdzane dopiero wtedy, gdy BN nie zwróci użytecznego rekordu albo odpowie błędem.
+Po zeskanowaniu lub zatwierdzeniu prawidłowego ISBN-13 w ręcznym fallbacku skanera aplikacja wykonuje pojedynczy lookup. ISBN-10 wpisany w rozszerzonych danych formularza jest normalizowany do ISBN-13. Najpierw aplikacja pyta API Biblioteki Narodowej. Open Library jest sprawdzane dopiero wtedy, gdy BN nie zwróci użytecznego rekordu albo odpowie błędem.
 
 - Pierwszy użyteczny wynik uzupełnia tytuł, podtytuł, autorów, wydawcę, rok i język.
 - Formularz pozostaje edytowalny podczas zapytania; wpisane w tym czasie wartości nie są nadpisywane.

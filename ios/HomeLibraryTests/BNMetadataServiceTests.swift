@@ -64,6 +64,45 @@ final class BNMetadataServiceTests: XCTestCase {
         XCTAssertEqual(metadata?.language, "pl")
     }
 
+    func testMatchesRequestedISBNInsideAggregatedBNIdentifiers() async throws {
+        let transport = StubBNTransport(json: Self.aggregatedISBNFixture)
+        let service = BNMetadataService(transport: transport)
+
+        let metadata = try await service.lookup(isbn: "9788325572280")
+
+        XCTAssertEqual(
+            metadata?.title,
+            "Sprawozdania i deklaracje w instytucjach kultury"
+        )
+        XCTAssertEqual(metadata?.publicationYear, 2015)
+        XCTAssertEqual(metadata?.source, .nationalLibrary)
+    }
+
+    func testMatchesRequestedISBNFromSeparateMARC020Subfield() async throws {
+        let transport = StubBNTransport(json: """
+        {
+          "bibs": [{
+            "deleted": false,
+            "isbnIssn": "9788325572297",
+            "title": "Wydanie papierowe",
+            "marc": {
+              "fields": [
+                {"020": {"subfields": [
+                  {"a": "978-83-255-7228-0 (oprawa miękka)"},
+                  {"a": "978-83-255-7229-7 (e-book)"}
+                ]}}
+              ]
+            }
+          }]
+        }
+        """)
+
+        let metadata = try await BNMetadataService(transport: transport)
+            .lookup(isbn: "9788325572280")
+
+        XCTAssertEqual(metadata?.title, "Wydanie papierowe")
+    }
+
     func testDeletedOrMissingRecordsReturnNoMatch() async throws {
         let deletedTransport = StubBNTransport(json: """
         {"bibs":[{"deleted":true,"isbnIssn":"9780306406157","title":"Usunięty rekord"}]}
@@ -86,6 +125,23 @@ final class BNMetadataServiceTests: XCTestCase {
             "deleted": false,
             "isbnIssn": "9780140328721",
             "title": "Rekord innej książki"
+          }]
+        }
+        """)
+
+        let result = try await BNMetadataService(transport: transport)
+            .lookup(isbn: "9780306406157")
+
+        XCTAssertNil(result)
+    }
+
+    func testAggregatedIdentifiersWithoutRequestedISBNReturnNoMatch() async throws {
+        let transport = StubBNTransport(json: """
+        {
+          "bibs": [{
+            "deleted": false,
+            "isbnIssn": "9788325572280 9788325572297",
+            "title": "Rekord innych wydań"
           }]
         }
         """)
@@ -179,6 +235,20 @@ private extension BNMetadataServiceTests {
             {"920": {"ind1": " ", "ind2": " ", "subfields": [{"a": "978-83-65646-15-6 : zł 29"}]}}
           ]
         }
+      }]
+    }
+    """
+
+    // Real response shape observed for ISBN 9788325572280. BN aggregates the
+    // print and electronic identifiers in one top-level isbnIssn value.
+    static let aggregatedISBNFixture = """
+    {
+      "nextPage": "https://data.bn.org.pl/api/institutions/bibs.json?isbnIssn=9788325572280&limit=3&sinceId=1000000",
+      "bibs": [{
+        "deleted": false,
+        "isbnIssn": "9788325572280 9788325572297",
+        "title": "Sprawozdania i deklaracje w instytucjach kultury",
+        "publicationYear": "2015"
       }]
     }
     """

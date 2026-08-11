@@ -48,6 +48,45 @@ final class OpenLibraryMetadataServiceTests: XCTestCase {
         XCTAssertNil(result)
     }
 
+    func testMissingRecordsAndEmptyArrayShapesReturnNoMatch() async throws {
+        let emptyResponses = [
+            "{}",
+            #"{"items":[]}"#,
+            "[]",
+            #"{"records":[]}"#
+        ]
+
+        for json in emptyResponses {
+            let result = try await OpenLibraryMetadataService(
+                transport: StubOpenLibraryTransport(json: json)
+            ).lookup(isbn: "9780306406157")
+
+            XCTAssertNil(result, "Odpowiedź \(json) powinna oznaczać brak dopasowania.")
+        }
+    }
+
+    func testMatchesRecordContainingOnlyEquivalentISBN10() async throws {
+        let transport = StubOpenLibraryTransport(json: """
+        {
+          "records": {
+            "/books/OL4256224M": {
+              "isbns": ["0306406152"],
+              "data": {
+                "title": "Error-correction coding for digital communications",
+                "publish_date": "1981"
+              }
+            }
+          }
+        }
+        """)
+
+        let metadata = try await OpenLibraryMetadataService(transport: transport)
+            .lookup(isbn: "9780306406157")
+
+        XCTAssertEqual(metadata?.title, "Error-correction coding for digital communications")
+        XCTAssertEqual(metadata?.publicationYear, 1981)
+    }
+
     func testUnrelatedISBNRecordReturnsNoMatch() async throws {
         let transport = StubOpenLibraryTransport(json: """
         {
@@ -106,6 +145,21 @@ final class OpenLibraryMetadataServiceTests: XCTestCase {
             _ = try await OpenLibraryMetadataService(transport: transport)
                 .lookup(isbn: "9780306406157")
             XCTFail("Uszkodzony JSON powinien zakończyć lookup błędem.")
+        } catch {
+            XCTAssertEqual(
+                error as? OpenLibraryMetadataServiceError,
+                .malformedResponse
+            )
+        }
+    }
+
+    func testMapsInvalidRecordsShapeToTypedFormatError() async {
+        let transport = StubOpenLibraryTransport(json: #"{"records":"not-a-catalog"}"#)
+
+        do {
+            _ = try await OpenLibraryMetadataService(transport: transport)
+                .lookup(isbn: "9780306406157")
+            XCTFail("Niepusty, niekatalogowy records powinien zakończyć lookup błędem.")
         } catch {
             XCTAssertEqual(
                 error as? OpenLibraryMetadataServiceError,

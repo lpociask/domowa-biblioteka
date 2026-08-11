@@ -52,7 +52,7 @@ Serial → SerialManifestation → Issue → OwnedItem
 - Import jest addytywny i idempotentny względem stabilnych identyfikatorów: pomija istniejące publikacje i egzemplarze, nie nadpisuje lokalnych zmian i nie wykonuje usunięć.
 - Zewnętrzne ID są zachowywane przez round-trip, nawet gdy iOS potrzebuje wewnętrznego UUID. Dekodowanie i walidacja importu odbywają się poza głównym wątkiem, przed atomowym zapisem do SwiftData.
 
-Skan natychmiast przechodzi do edytowalnego formularza. Lookup działa asynchronicznie i nie blokuje ręcznego uzupełnienia ani zapisu publikacji.
+Poprawny ISBN 978/979 albo kod prasy 977 przechodzi do edytowalnego formularza. Inny EAN, błędna suma kontrolna lub niepublikacyjny QR pozostają w skanerze z wyjaśnieniem. Lookup działa asynchronicznie i nie blokuje ręcznego uzupełnienia ani zapisu publikacji.
 
 ## Wzbogacanie metadanych książek
 

@@ -94,6 +94,48 @@ struct OpenLibraryMetadataService: BookMetadataProviding {
 private extension OpenLibraryMetadataService {
     struct Response: Decodable {
         let records: [String: Record]
+
+        private enum CodingKeys: String, CodingKey {
+            case records
+        }
+
+        init(from decoder: Decoder) throws {
+            if let array = try? decoder.unkeyedContainer() {
+                guard array.isAtEnd else {
+                    throw DecodingError.dataCorruptedError(
+                        in: array,
+                        debugDescription: "Niepusta tablica nie jest odpowiedzią katalogową Open Library."
+                    )
+                }
+                records = [:]
+                return
+            }
+
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            guard container.contains(.records) else {
+                records = [:]
+                return
+            }
+
+            if let decodedRecords = try? container.decode([String: Record].self, forKey: .records) {
+                records = decodedRecords
+                return
+            }
+
+            if let array = try? container.nestedUnkeyedContainer(forKey: .records),
+               array.isAtEnd {
+                records = [:]
+                return
+            }
+
+            throw DecodingError.typeMismatch(
+                [String: Record].self,
+                DecodingError.Context(
+                    codingPath: container.codingPath + [CodingKeys.records],
+                    debugDescription: "Pole records musi być obiektem albo pustą tablicą."
+                )
+            )
+        }
     }
 
     struct Record: Decodable {

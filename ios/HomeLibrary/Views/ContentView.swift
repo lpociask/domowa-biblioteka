@@ -3,6 +3,17 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 struct ContentView: View {
+    private enum AddItemRoute: Hashable, Identifiable {
+        case scanner
+        case manual
+
+        var id: Self { self }
+
+        var startsWithScanner: Bool {
+            self == .scanner
+        }
+    }
+
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \OwnedItem.addedAt, order: .reverse) private var items: [OwnedItem]
 
@@ -10,8 +21,7 @@ struct ContentView: View {
     @AppStorage("collectionName") private var collectionName = "Moja biblioteka"
 
     @State private var searchText = ""
-    @State private var showingAddFlow = false
-    @State private var addFlowStartsWithScanner = false
+    @State private var addItemRoute: AddItemRoute?
     @State private var exportDocument: CollectionJSONDocument?
     @State private var showingExporter = false
     @State private var showingImporter = false
@@ -43,29 +53,20 @@ struct ContentView: View {
         NavigationStack {
             Group {
                 if items.isEmpty {
-                    ContentUnavailableView {
-                        Label("Kolekcja jest pusta", systemImage: "books.vertical")
-                    } description: {
-                        Text("Zeskanuj kod albo dodaj pierwszą publikację ręcznie.")
-                    } actions: {
-                        Button("Skanuj kod") {
-                            presentAddFlow(scanner: true)
-                        }
-                        .buttonStyle(.borderedProminent)
-
-                        Button("Dodaj ręcznie") {
-                            presentAddFlow(scanner: false)
-                        }
-                        .buttonStyle(.bordered)
-                    }
-                } else if filteredItems.isEmpty {
-                    ContentUnavailableView.search(text: searchText)
+                    emptyCollectionView
                 } else {
-                    collectionList
+                    Group {
+                        if filteredItems.isEmpty {
+                            ContentUnavailableView.search(text: searchText)
+                        } else {
+                            collectionList
+                        }
+                    }
+                    .searchable(text: $searchText, prompt: "Tytuł, autor, kod lub lokalizacja")
                 }
             }
             .navigationTitle(collectionName)
-            .searchable(text: $searchText, prompt: "Tytuł, autor, kod lub lokalizacja")
+            .navigationBarTitleDisplayMode(items.isEmpty ? .inline : .large)
             .toolbar {
                 ToolbarItemGroup(placement: .topBarTrailing) {
                     Button {
@@ -111,8 +112,10 @@ struct ContentView: View {
                 }
             }
         }
-        .sheet(isPresented: $showingAddFlow) {
-            AddItemFlow(startWithScanner: addFlowStartsWithScanner)
+        .sheet(item: $addItemRoute) { route in
+            AddItemFlow(startWithScanner: route.startsWithScanner)
+                .presentationDetents([.large])
+                .presentationDragIndicator(.visible)
         }
         .fileExporter(
             isPresented: $showingExporter,
@@ -185,6 +188,118 @@ struct ContentView: View {
         }
     }
 
+    private var emptyCollectionView: some View {
+        VStack(spacing: 0) {
+            ScrollView {
+                VStack(spacing: 20) {
+                    VStack(spacing: 12) {
+                        Image(systemName: "books.vertical.fill")
+                            .font(.system(size: 38, weight: .semibold))
+                            .foregroundStyle(.tint)
+                            .frame(width: 76, height: 76)
+                            .background(.tint.opacity(0.12), in: RoundedRectangle(cornerRadius: 22))
+                            .accessibilityHidden(true)
+
+                        Text("Zacznij katalogować")
+                            .font(.title2.bold())
+
+                        Text("Kod z okładki wystarczy, żeby rozpocząć. Przed zapisem zawsze możesz poprawić znalezione dane.")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                    }
+
+                    HStack(alignment: .center, spacing: 6) {
+                        EmptyCollectionStep(
+                            number: 1,
+                            title: "Skanuj",
+                            systemImage: "barcode.viewfinder"
+                        )
+
+                        Image(systemName: "chevron.right")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.tertiary)
+                            .accessibilityHidden(true)
+
+                        EmptyCollectionStep(
+                            number: 2,
+                            title: "Sprawdź",
+                            systemImage: "checkmark.circle"
+                        )
+
+                        Image(systemName: "chevron.right")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.tertiary)
+                            .accessibilityHidden(true)
+
+                        EmptyCollectionStep(
+                            number: 3,
+                            title: "Zapisz lokalizację",
+                            systemImage: "mappin.and.ellipse"
+                        )
+                    }
+                    .padding(16)
+                    .background(.background.secondary, in: RoundedRectangle(cornerRadius: 20))
+                    .accessibilityElement(children: .contain)
+                }
+                .padding(.horizontal, 20)
+                .padding(.top, 18)
+                .padding(.bottom, 16)
+                .frame(maxWidth: 560)
+                .frame(maxWidth: .infinity)
+            }
+
+            emptyCollectionActions
+                .padding(.horizontal, 20)
+                .padding(.top, 12)
+                .padding(.bottom, 10)
+                .frame(maxWidth: 560)
+                .frame(maxWidth: .infinity)
+                .background(Color(uiColor: .systemBackground))
+                .overlay(alignment: .top) {
+                    Divider()
+                }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var emptyCollectionActions: some View {
+        VStack(spacing: 10) {
+            Button {
+                presentAddFlow(scanner: true)
+            } label: {
+                Label("Skanuj kod", systemImage: "barcode.viewfinder")
+                    .fontWeight(.semibold)
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+            .accessibilityLabel("Skanuj pierwszą publikację")
+
+            HStack(spacing: 10) {
+                Button {
+                    presentAddFlow(scanner: false)
+                } label: {
+                    Label("Ręcznie", systemImage: "square.and.pencil")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+                .accessibilityLabel("Dodaj publikację ręcznie")
+
+                Button {
+                    showingImporter = true
+                } label: {
+                    Label("Import", systemImage: "square.and.arrow.down")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+                .disabled(isImporting)
+                .accessibilityLabel("Importuj kolekcję z pliku JSON")
+            }
+            .controlSize(.large)
+        }
+    }
+
     private var collectionList: some View {
         List {
             ForEach(filteredItems) { item in
@@ -200,8 +315,7 @@ struct ContentView: View {
     }
 
     private func presentAddFlow(scanner: Bool) {
-        addFlowStartsWithScanner = scanner
-        showingAddFlow = true
+        addItemRoute = scanner ? .scanner : .manual
     }
 
     private func deleteItems(at offsets: IndexSet) {
@@ -242,6 +356,40 @@ struct ContentView: View {
             return "egzemplarze"
         }
         return "egzemplarzy"
+    }
+}
+
+private struct EmptyCollectionStep: View {
+    let number: Int
+    let title: String
+    let systemImage: String
+
+    var body: some View {
+        VStack(spacing: 8) {
+            ZStack(alignment: .topTrailing) {
+                Image(systemName: systemImage)
+                    .font(.title3.weight(.semibold))
+                    .foregroundStyle(.tint)
+                    .frame(width: 48, height: 48)
+                    .background(.tint.opacity(0.12), in: RoundedRectangle(cornerRadius: 14))
+
+                Text(String(number))
+                    .font(.caption2.bold())
+                    .foregroundStyle(.white)
+                    .frame(width: 20, height: 20)
+                    .background(.tint, in: Circle())
+                    .offset(x: 5, y: -5)
+            }
+
+            Text(title)
+                .font(.caption.weight(.semibold))
+                .multilineTextAlignment(.center)
+                .lineLimit(2)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, alignment: .top)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Krok \(number): \(title)")
     }
 }
 
