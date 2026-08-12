@@ -487,7 +487,7 @@ h1 {
   z-index: 20;
   top: 78px;
   display: grid;
-  grid-template-columns: minmax(260px, 1.2fr) minmax(540px, 1fr);
+  grid-template-columns: minmax(260px, 1fr) minmax(0, 600px);
   gap: 14px;
   padding: 12px;
   border: 1px solid var(--line-strong);
@@ -553,7 +553,8 @@ h1 {
 
 .filter-row {
   display: grid;
-  grid-template-columns: minmax(110px, 0.8fr) minmax(155px, 1.25fr) minmax(140px, 1fr) auto;
+  min-width: 0;
+  grid-template-columns: minmax(90px, 0.75fr) minmax(130px, 1.1fr) minmax(120px, 1fr) auto;
   gap: 8px;
   align-items: stretch;
 }

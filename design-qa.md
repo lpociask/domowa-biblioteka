@@ -1,6 +1,7 @@
 # Design QA — widok dużych okładek WWW
 
 - Source visual truth: `/private/tmp/HomeLibraryWeb-before-desktop.png`
+- Overflow regression source: `/Users/lpociask/Desktop/Zrzut ekranu 2026-08-12 o 11.22.50.png`
 - Implementation screenshots: `/private/tmp/HomeLibraryWeb-covers-desktop-top.png`, `/private/tmp/HomeLibraryWeb-covers-mobile-press-final-3.png`, `/private/tmp/HomeLibraryWeb-list-mobile-catalog.png`, `/private/tmp/HomeLibraryWeb-real-cover-mobile.png`, `/private/tmp/HomeLibraryWeb-status-loaned-mobile.png`
 - Combined comparison evidence: `/private/tmp/polka-design-qa/comparison-final.png`
 - Viewports: desktop 1440 × 1000 CSS px; mobile 390 × 844 requested (browser content 375 × 812 CSS px)
@@ -29,6 +30,7 @@ The catalog/control strip and first four covers were compared in the lower half 
 2. Review found eager-request risk because `src` preceded `loading="lazy"`, and an empty paper cover while a lazy image waited. Fix: image behavior attributes are set before `src`; catalog cover content stays visible until `has-cover-image`.
 3. Post-fix browser checks: 43/43 data tests pass, JS syntax passes, console has no errors, filters/detail opening work, grid/list persists, real cover loading is restricted to `covers.openlibrary.org`, and list rendering creates no cover image requests.
 4. Final mobile review found overlong press metadata in the two-column grid. Fix: the mobile cover view now uses the issue number (or year fallback) rather than duplicating the full issue date; `Wydanie 01` is compacted to `01`. Post-fix evidence is `/private/tmp/HomeLibraryWeb-covers-mobile-press-final-3.png`.
+5. A real desktop screenshot exposed horizontal overflow in the filter toolbar: the 540 px filter track was smaller than the 623 px intrinsic controls. Reproduced before at 1280 × 900 in `/private/tmp/polka-overflow-audit/01-before.png`. Fix: the toolbar now reserves a shrink-safe 600 px filter track, the filter grid has `min-width: 0`, and select tracks have smaller explicit minima. Post-fix grid evidence is `/private/tmp/polka-overflow-audit/03-after-grid-1280.png`; combined before/after evidence is `/private/tmp/polka-overflow-audit/04-comparison.png`.
 
 ## Findings
 
@@ -42,5 +44,6 @@ No actionable P0, P1, or P2 findings remain. The compact list intentionally rema
 - real Open Library cover loading with `loading="lazy"`;
 - mobile 2-column grid and cover-free list;
 - absence of console errors.
+- desktop toolbar containment at 1440, 1080, 1061/1060, 800/780, 520 and 390 px; each check had `document.scrollWidth == clientWidth` and the view switch remained within the toolbar.
 
 final result: passed
