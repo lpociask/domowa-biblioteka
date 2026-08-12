@@ -15,26 +15,47 @@
 
 - [x] adapter Biblioteki Narodowej po ISBN;
 - [x] kaskadowy fallback Open Library, gdy BN nie zwróci dopasowania albo jest chwilowo niedostępna;
+- [x] trzeci stopień kaskady: Library of Congress dla książek nieodnalezionych wcześniej;
 - [x] lookup pojedynczego ISBN uruchamiany przez użytkownika, bez zadań wsadowych;
 - [x] cache HTTP dla Open Library i zapis pochodzenia zaakceptowanych metadanych;
 - [x] zachowanie ręcznych zmian wykonanych podczas trwania lookupu;
+- [x] jawny, trwały cache metadanych: 30 dni dla wyników, 24 godziny dla braku rekordu i awaryjny odczyt stale do roku;
+- [x] okładki Open Library z bezpiecznym cache obrazów, limitami, usuwaniem metadanych zdjęcia i pracą offline;
+- [x] własne zdjęcie okładki książki: sanitizacja przed zapisem, trwałe przechowywanie lokalne i priorytet nad okładką zdalną;
 - [ ] adapter e‑ISBN jako uzupełnienie nowych polskich wydań;
-- [ ] jawny, trwały cache metadanych z TTL, pochodzeniem pól i polityką odświeżania;
+- [ ] pochodzenie na poziomie pojedynczych pól i ekran porównania rozbieżnych źródeł;
 - [ ] ekran wyboru wyniku, gdy źródła zwracają różne wydania;
 - [ ] zdjęcie strony tytułowej i ręczny fallback dla książek bez kodu.
 
-Open Library pozostaje eksperymentalnym źródłem low-volume. Bieżący cache jest cache'em HTTP `URLSession`, a nie trwałą lokalną bazą odpowiedzi.
+Open Library pozostaje eksperymentalnym źródłem low-volume. Library of Congress rozszerza zasięg bez wymagania sekretu w aplikacji. Google Books nie zostało dodane, ponieważ oficjalne API wymaga klucza lub OAuth. Odpowiedzi katalogowe i zdalne okładki są przechowywane w osobnych, odbudowywalnych cache'ach. Własne zdjęcie okładki jest trwałym, local-first składnikiem lokalnej bazy publikacji.
+
+## Etap 1.5 — wygodne katalogowanie półki
+
+- [x] wybór i normalizacja bieżącej lokalizacji, np. „Gabinet / Regał 2 / Półka 3”;
+- [x] tryb seryjnego skanowania z zachowaniem lokalizacji;
+- [x] wykrywanie kolejnej kopii i możliwego ponownego skanu na tej samej półce;
+- [x] edycja opisu, przenoszenie egzemplarza i bezpieczne usuwanie;
+- [x] szybkie cofnięcie zapisu, edycji, przeniesienia i usunięcia;
+- [x] dobrowolny, lokalny instrument pomiarowy i dashboard pilota 100–200;
+- [ ] wykonanie pilota na 100–200 realnych obiektów i decyzja na podstawie wyników.
 
 ## Etap 2 — prasa
 
-- rozdzielenie `Serial → SerialManifestation → Issue → OwnedItem`;
+- [x] odwracalna projekcja `Seria → Numer → Egzemplarz` bez migracji głównej bazy;
+- [ ] pełne rozdzielenie `Serial → SerialManifestation → Issue → OwnedItem` dopiero, jeśli pilot pokaże potrzebę aliasów i wielu manifestacji;
 - [x] parser kodu 977: walidacja EAN‑13, automatyczny typ prasa i wyprowadzenie bazowego ISSN;
-- test odczytu dodatków EAN‑2/EAN‑5 na fizycznej próbce;
-- OCR daty, numeru i tomu z okładki;
-- szybki tryb dodawania kolejnych numerów jednego tytułu;
-- widok brakujących i zdublowanych numerów.
+- [x] lookup tytułu prasy w kaskadzie Biblioteka Narodowa → ISSN Portal;
+- [x] zachowanie dodatków EAN‑2/EAN‑5, ręczny fallback i best-effort odczyt przez VisionKit;
+- [ ] test skuteczności dodatków EAN‑2/EAN‑5 na fizycznych próbkach;
+- [x] lokalny OCR daty, numeru i tomu z okładki z jawnym potwierdzeniem każdej propozycji;
+- [x] własne zdjęcie okładki prasy: sanitizacja, zapis local-first i możliwość użycia tego samego obrazu przez review-only OCR;
+- [ ] szybki tryb dodawania kolejnych numerów jednego tytułu;
+- [x] analizator luk, wielu kopii i powtórzonych rekordów numerów;
+- [x] pełny widok serii prasy na iOS i WWW;
 
-Kod 977 identyfikuje tytuł/manifestację seryjną, nie konkretny numer. Dwie cyfry wariantu w głównym EAN‑13 nie są numerem wydania; dopóki skaner nie obsługuje osobnego dodatku EAN‑2/EAN‑5 lub OCR okładki, numer i data pozostają polami ręcznymi.
+Kod 977 identyfikuje tytuł/manifestację seryjną, nie konkretny numer. Dwie cyfry wariantu w głównym EAN‑13 nie są numerem wydania. Aplikacja potrafi zachować osobny dodatek EAN‑2/EAN‑5 i pokazuje go do potwierdzenia, ale jego znaczenie zależy od wydawcy. Automatyczny odczyt systemowy jest best-effort; ręczne wpisanie oraz lokalny OCR okładki pozostają koniecznym fallbackiem. Przetworzone zdjęcie może zostać zapisane lokalnie jako okładka i jednocześnie zasilić OCR, lecz żadna propozycja tekstowa nie trafia do formularza bez potwierdzenia użytkownika. Obraz nie jest wysyłany do źródeł metadanych.
+
+Collection JSON v1 zachowuje dane katalogowe i zdalne referencje okładek, ale celowo nie osadza binarnych lokalnych zdjęć. Interfejs ostrzega więc, że obecny eksport nie jest pełną kopią multimediów; ich bezpieczny transfer i backup należą do etapu prywatnej synchronizacji.
 
 ## Etap 3 — prywatna synchronizacja
 
@@ -66,3 +87,17 @@ Pilot powinien objąć 100–200 realnych obiektów. Orientacyjne cele:
 - pełne odtworzenie kolekcji z eksportu, zweryfikowane na realnych danych i w obu klientach.
 
 To są progi decyzyjne, nie wyniki osiągnięte przez obecną wersję.
+
+### Jak prowadzimy pilot
+
+Pomiar jest domyślnie wyłączony. Użytkownik włącza go w iOS przez `Więcej → Pilot 100–200`. Aplikacja zapisuje lokalnie wyłącznie zamknięte wyniki operacji i ograniczone liczniki/czasy — bez tytułów, ISBN, nazw lokalizacji, notatek, obrazów i identyfikatorów egzemplarzy. Udostępniany raport JSON/CSV zawiera tylko agregaty.
+
+Trzy KPI decyzyjne to:
+
+1. mediana i P90 aktywnego czasu dodania książki oraz prasy;
+2. odsetek trafień automatycznego lookupu i odsetek zapisów wymagających ręcznej korekty;
+3. odsetek semantycznie poprawnych odtworzeń iOS → WWW → iOS.
+
+Wyniki interpretujemy razem z guardrailami: awarie i anulowania, brak lokalizacji, duplikaty/override, skuteczność OCR oraz sukces wyszukiwania. Zwykły eksport lub import nie jest liczony jako poprawne odtworzenie — trzeba uruchomić osobną akcję weryfikacji i wskazać plik, który przeszedł przez WWW.
+
+Postęp kolekcji jest liczony netto: szybkie cofnięcie ostatniego seryjnego zapisu odejmuje ten obiekt od licznika pilota, pozostawiając samo cofnięcie jako guardrail jakości przepływu.

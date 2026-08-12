@@ -1,8 +1,9 @@
 import Foundation
 
-enum BookMetadataSource: String, Equatable, Sendable {
+enum BookMetadataSource: String, Codable, Equatable, Sendable {
     case nationalLibrary = "bn"
     case openLibrary = "openlibrary"
+    case libraryOfCongress = "libraryOfCongress"
 
     var displayName: String {
         switch self {
@@ -10,11 +11,13 @@ enum BookMetadataSource: String, Equatable, Sendable {
             "Biblioteki Narodowej"
         case .openLibrary:
             "Open Library"
+        case .libraryOfCongress:
+            "Library of Congress"
         }
     }
 }
 
-struct BookMetadata: Equatable, Sendable {
+struct BookMetadata: Codable, Equatable, Sendable {
     let source: BookMetadataSource
     let title: String?
     let subtitle: String?
@@ -22,6 +25,30 @@ struct BookMetadata: Equatable, Sendable {
     let publisher: String?
     let publicationYear: Int?
     let language: String?
+    let coverURL: URL?
+    let coverSource: BookMetadataSource?
+
+    init(
+        source: BookMetadataSource,
+        title: String?,
+        subtitle: String?,
+        authors: [String],
+        publisher: String?,
+        publicationYear: Int?,
+        language: String?,
+        coverURL: URL? = nil,
+        coverSource: BookMetadataSource? = nil
+    ) {
+        self.source = source
+        self.title = title
+        self.subtitle = subtitle
+        self.authors = authors
+        self.publisher = publisher
+        self.publicationYear = publicationYear
+        self.language = language
+        self.coverURL = coverURL
+        self.coverSource = coverSource
+    }
 
     var hasUsefulData: Bool {
         title != nil ||
@@ -30,6 +57,121 @@ struct BookMetadata: Equatable, Sendable {
             publisher != nil ||
             publicationYear != nil ||
             language != nil
+    }
+
+    func addingFallbackCover(forISBN isbn13: String) -> BookMetadata {
+        guard coverURL == nil,
+              let fallbackURL = OpenLibraryCoverURL.url(forISBN: isbn13) else {
+            return self
+        }
+
+        return BookMetadata(
+            source: source,
+            title: title,
+            subtitle: subtitle,
+            authors: authors,
+            publisher: publisher,
+            publicationYear: publicationYear,
+            language: language,
+            coverURL: fallbackURL,
+            coverSource: .openLibrary
+        )
+    }
+
+    func addingOpenLibraryCover(_ candidateURL: URL?) -> BookMetadata {
+        guard coverURL == nil,
+              let candidateURL,
+              RemoteCoverURLPolicy.canLoadAutomatically(candidateURL) else {
+            return self
+        }
+
+        return BookMetadata(
+            source: source,
+            title: title,
+            subtitle: subtitle,
+            authors: authors,
+            publisher: publisher,
+            publicationYear: publicationYear,
+            language: language,
+            coverURL: candidateURL,
+            coverSource: .openLibrary
+        )
+    }
+}
+
+enum OpenLibraryCoverSize: String, Sendable {
+    case small = "S"
+    case medium = "M"
+    case large = "L"
+}
+
+/// Builds the documented Open Library Covers API URL. `default=false` makes a
+/// missing cover an explicit HTTP 404, which the persistent image cache can
+/// remember instead of storing Open Library's blank placeholder image.
+enum OpenLibraryCoverURL {
+    static func url(
+        forISBN rawISBN: String,
+        size: OpenLibraryCoverSize = .medium
+    ) -> URL? {
+        let parsed = PublicationIdentifierParser.parse(rawISBN)
+        guard parsed.isValid,
+              parsed.kind == .isbn10 || parsed.kind == .isbn13,
+              let isbn13 = parsed.isbn13,
+              var components = URLComponents(string: "https://covers.openlibrary.org") else {
+            return nil
+        }
+
+        components.path = "/b/isbn/\(isbn13)-\(size.rawValue).jpg"
+        components.queryItems = [URLQueryItem(name: "default", value: "false")]
+        return components.url
+    }
+
+    /// Cover-ID URLs avoid the stricter rate limit applied to ISBN mappings
+    /// and point at the exact image selected by Open Library's edition data.
+    static func url(
+        forCoverID coverID: Int,
+        size: OpenLibraryCoverSize = .medium
+    ) -> URL? {
+        guard coverID > 0,
+              var components = URLComponents(
+                  string: "https://covers.openlibrary.org"
+              ) else {
+            return nil
+        }
+
+        components.path = "/b/id/\(coverID)-\(size.rawValue).jpg"
+        components.queryItems = [URLQueryItem(name: "default", value: "false")]
+        return components.url
+    }
+}
+
+enum RemoteCoverURLPolicy {
+    static func validatedReference(_ value: String) -> URL? {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty,
+              trimmed.utf8.count <= 2_048,
+              trimmed.unicodeScalars.allSatisfy({ (0x21...0x7E).contains($0.value) }),
+              let components = URLComponents(string: trimmed),
+              components.scheme?.lowercased() == "https",
+              components.host != nil,
+              components.user == nil,
+              components.password == nil,
+              let normalizedURL = components.url,
+              normalizedURL.absoluteString.utf8.count <= 2_048,
+              normalizedURL.absoluteString.unicodeScalars.allSatisfy({
+                  (0x21...0x7E).contains($0.value)
+              }) else {
+            return nil
+        }
+        return normalizedURL
+    }
+
+    static func canLoadAutomatically(_ url: URL) -> Bool {
+        url.scheme?.lowercased() == "https" &&
+            url.host?.lowercased() == "covers.openlibrary.org" &&
+            url.user == nil &&
+            url.password == nil &&
+            (url.port == nil || url.port == 443)
     }
 }
 
@@ -49,15 +191,72 @@ enum BookMetadataLookupError: Error, Equatable {
 /// A successful empty response means “no match”; an outage in one source does
 /// not prevent a later source from answering.
 struct CascadingBookMetadataProvider: BookMetadataProviding {
-    private let providers: [any BookMetadataProviding]
+    private struct Stage: Sendable {
+        /// Nil preserves lookup compatibility for custom cascades longer than
+        /// the production BN → Open Library pair without mislabelling metrics.
+        let pilotSource: PilotLookupSource?
+        let provider: any BookMetadataProviding
+    }
+
+    private let stages: [Stage]
+    private let nationalLibraryCoverEnrichment: Stage?
+    private let observer: BookMetadataLookupObserver
 
     init(
         providers: [any BookMetadataProviding] = [
             BNMetadataService(),
             OpenLibraryMetadataService()
-        ]
+        ],
+        observer: BookMetadataLookupObserver = .disabled
     ) {
-        self.providers = providers
+        // Custom provider lists are never labelled by array position. The
+        // production initializer below supplies explicit BN/OL provenance.
+        stages = providers.map { Stage(pilotSource: nil, provider: $0) }
+        nationalLibraryCoverEnrichment = nil
+        self.observer = observer
+    }
+
+    /// Explicitly-labelled two-stage cascade used by production and trace
+    /// tests. Custom arrays intentionally remain unlabelled so provider order
+    /// can never fabricate BN/Open Library provenance.
+    init(
+        nationalLibrary: any BookMetadataProviding,
+        openLibrary: any BookMetadataProviding,
+        libraryOfCongress: (any BookMetadataProviding)? = nil,
+        nationalLibraryCoverEnrichment: (any BookMetadataProviding)? = nil,
+        observer: BookMetadataLookupObserver = .disabled
+    ) {
+        var configuredStages = [
+            Stage(pilotSource: .nationalLibrary, provider: nationalLibrary),
+            Stage(pilotSource: .openLibrary, provider: openLibrary)
+        ]
+        if let libraryOfCongress {
+            configuredStages.append(
+                Stage(pilotSource: .libraryOfCongress, provider: libraryOfCongress)
+            )
+        }
+        stages = configuredStages
+        self.nationalLibraryCoverEnrichment = nationalLibraryCoverEnrichment.map {
+            Stage(pilotSource: .openLibrary, provider: $0)
+        }
+        self.observer = observer
+    }
+
+    private init(productionObserver observer: BookMetadataLookupObserver) {
+        self.init(
+            nationalLibrary: BNMetadataService(),
+            openLibrary: FallbackOpenLibraryMetadataProvider(
+                primary: OpenLibraryMetadataService(),
+                fallback: OpenLibrarySearchMetadataService()
+            ),
+            libraryOfCongress: LibraryOfCongressMetadataService(),
+            nationalLibraryCoverEnrichment: OpenLibrarySearchMetadataService(),
+            observer: observer
+        )
+    }
+
+    static func production(observer: BookMetadataLookupObserver = .disabled) -> Self {
+        Self(productionObserver: observer)
     }
 
     func lookup(isbn: String) async throws -> BookMetadata? {
@@ -72,22 +271,50 @@ struct CascadingBookMetadataProvider: BookMetadataProviding {
 
         var lastError: Error?
 
-        for provider in providers {
+        for stage in stages {
             try Task.checkCancellation()
 
             do {
-                let metadata = try await provider.lookup(isbn: isbn13)
+                let metadata = try await stage.provider.lookup(isbn: isbn13)
                 try Task.checkCancellation()
                 if let metadata, metadata.hasUsefulData {
-                    return metadata
+                    if let source = stage.pilotSource {
+                        await observer.record(source: source, outcome: .found)
+                    }
+
+                    let result: BookMetadata
+                    if stage.pilotSource == .nationalLibrary {
+                        result = try await enrichingNationalLibraryCover(
+                            in: metadata,
+                            isbn: isbn13
+                        )
+                    } else {
+                        result = metadata
+                    }
+                    return result.addingFallbackCover(forISBN: isbn13)
+                }
+                if let source = stage.pilotSource {
+                    await observer.record(source: source, outcome: .notFound)
                 }
             } catch is CancellationError {
+                if let source = stage.pilotSource {
+                    await observer.record(source: source, outcome: .cancelled)
+                }
                 throw CancellationError()
             } catch let error as URLError where error.code == .cancelled {
+                if let source = stage.pilotSource {
+                    await observer.record(source: source, outcome: .cancelled)
+                }
                 throw CancellationError()
             } catch {
                 if Task.isCancelled {
+                    if let source = stage.pilotSource {
+                        await observer.record(source: source, outcome: .cancelled)
+                    }
                     throw CancellationError()
+                }
+                if let source = stage.pilotSource {
+                    await observer.record(source: source, outcome: .failed)
                 }
                 lastError = error
             }
@@ -98,5 +325,58 @@ struct CascadingBookMetadataProvider: BookMetadataProviding {
             throw lastError
         }
         return nil
+    }
+
+    /// Production-only best-effort enrichment. BN remains the authoritative
+    /// bibliographic source; Open Library contributes solely a trusted cover.
+    /// A catalog outage must not discard an otherwise useful BN result.
+    private func enrichingNationalLibraryCover(
+        in metadata: BookMetadata,
+        isbn: String
+    ) async throws -> BookMetadata {
+        guard metadata.coverURL == nil,
+              let stage = nationalLibraryCoverEnrichment else {
+            return metadata
+        }
+
+        try Task.checkCancellation()
+
+        do {
+            let coverMetadata = try await stage.provider.lookup(isbn: isbn)
+            try Task.checkCancellation()
+
+            guard let coverMetadata, coverMetadata.hasUsefulData else {
+                if let source = stage.pilotSource {
+                    await observer.record(source: source, outcome: .notFound)
+                }
+                return metadata
+            }
+
+            if let source = stage.pilotSource {
+                await observer.record(source: source, outcome: .found)
+            }
+            return metadata.addingOpenLibraryCover(coverMetadata.coverURL)
+        } catch is CancellationError {
+            if let source = stage.pilotSource {
+                await observer.record(source: source, outcome: .cancelled)
+            }
+            throw CancellationError()
+        } catch let error as URLError where error.code == .cancelled {
+            if let source = stage.pilotSource {
+                await observer.record(source: source, outcome: .cancelled)
+            }
+            throw CancellationError()
+        } catch {
+            if Task.isCancelled {
+                if let source = stage.pilotSource {
+                    await observer.record(source: source, outcome: .cancelled)
+                }
+                throw CancellationError()
+            }
+            if let source = stage.pilotSource {
+                await observer.record(source: source, outcome: .failed)
+            }
+            return metadata
+        }
     }
 }

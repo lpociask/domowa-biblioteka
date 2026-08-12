@@ -55,6 +55,8 @@ struct ExportIssue: Codable {
 
 struct ExportMetadata: Codable {
     let source: String
+    let coverUrl: String?
+    let coverSource: String?
 }
 
 struct ExportOwnedItem: Codable {
@@ -143,7 +145,11 @@ enum CollectionExporter {
                 barcode: nilIfEmpty(publication.barcode)
             ),
             issue: issue,
-            metadata: ExportMetadata(source: publication.metadataSource),
+            metadata: ExportMetadata(
+                source: publication.metadataSource,
+                coverUrl: publication.exportCoverURL?.absoluteString,
+                coverSource: publication.exportCoverSource
+            ),
             createdAt: publication.createdAt,
             updatedAt: publication.updatedAt
         )
@@ -206,9 +212,7 @@ enum CollectionExporter {
     }
 
     private static func canonicalPath(_ components: [String]) -> String {
-        components
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
-            .joined(separator: "/")
+        LocationPath(segments: components).deduplicationKey
     }
 
     private static func stableUUID(for value: String) -> String {

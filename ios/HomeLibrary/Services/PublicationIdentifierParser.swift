@@ -15,6 +15,7 @@ struct ParsedPublicationIdentifier: Equatable {
     let isValid: Bool
     let isbn13: String?
     let issn: String?
+    let eanSupplement: String?
 }
 
 enum PublicationIdentifierParser {
@@ -22,51 +23,57 @@ enum PublicationIdentifierParser {
         let compact = rawValue
             .uppercased()
             .filter { $0.isNumber || $0 == "X" }
+        let (primary, detectedSupplement) = splitEANSupplement(from: rawValue, compact: compact)
 
-        if compact.count == 10, isValidISBN10(compact) {
-            let converted = convertISBN10To13(compact)
+        if primary.count == 10, isValidISBN10(primary) {
+            let converted = convertISBN10To13(primary)
             return ParsedPublicationIdentifier(
                 kind: .isbn10,
                 original: rawValue,
-                normalized: compact,
+                normalized: primary,
                 isValid: true,
                 isbn13: converted,
-                issn: nil
+                issn: nil,
+                eanSupplement: nil
             )
         }
 
-        if compact.count == 10 {
+        if primary.count == 10 {
             return ParsedPublicationIdentifier(
                 kind: .isbn10,
                 original: rawValue,
-                normalized: compact,
+                normalized: primary,
                 isValid: false,
                 isbn13: nil,
-                issn: nil
+                issn: nil,
+                eanSupplement: nil
             )
         }
 
-        if compact.count == 13 {
-            let valid = isValidEAN13(compact)
-            let isISBN = compact.hasPrefix("978") || compact.hasPrefix("979")
+        if primary.count == 13 {
+            let valid = isValidEAN13(primary)
+            let isISBN = primary.hasPrefix("978") || primary.hasPrefix("979")
+            let supplement = valid && primary.hasPrefix("977") ? detectedSupplement : nil
             return ParsedPublicationIdentifier(
                 kind: isISBN ? .isbn13 : .ean13,
                 original: rawValue,
-                normalized: compact,
+                normalized: primary,
                 isValid: valid,
-                isbn13: isISBN && valid ? compact : nil,
-                issn: valid ? deriveISSN(from: compact) : nil
+                isbn13: isISBN && valid ? primary : nil,
+                issn: valid ? deriveISSN(from: primary) : nil,
+                eanSupplement: supplement
             )
         }
 
-        if compact.count == 8, compact.allSatisfy(\.isNumber) {
+        if primary.count == 8, primary.allSatisfy(\.isNumber) {
             return ParsedPublicationIdentifier(
                 kind: .upce,
                 original: rawValue,
-                normalized: compact,
+                normalized: primary,
                 isValid: true,
                 isbn13: nil,
-                issn: nil
+                issn: nil,
+                eanSupplement: nil
             )
         }
 
@@ -76,8 +83,47 @@ enum PublicationIdentifierParser {
             normalized: rawValue.trimmingCharacters(in: .whitespacesAndNewlines),
             isValid: false,
             isbn13: nil,
-            issn: nil
+            issn: nil,
+            eanSupplement: nil
         )
+    }
+
+    /// Recognizes EAN-2/EAN-5 both in the scanner's canonical `main+addon`
+    /// form and in manually entered 15/18-digit forms. The add-on belongs to
+    /// periodicals only; ISBN add-ons are intentionally ignored.
+    private static func splitEANSupplement(
+        from rawValue: String,
+        compact: String
+    ) -> (primary: String, supplement: String?) {
+        let parts = rawValue.split(separator: "+", omittingEmptySubsequences: false)
+        if parts.count == 2 {
+            let primary = parts[0].uppercased().filter { $0.isNumber || $0 == "X" }
+            let supplement = parts[1].trimmingCharacters(in: .whitespacesAndNewlines)
+            return (
+                primary,
+                normalizedSupplement(supplement, for: primary)
+            )
+        }
+
+        guard compact.count == 15 || compact.count == 18 else {
+            return (compact, nil)
+        }
+
+        let primary = String(compact.prefix(13))
+        let supplement = String(compact.dropFirst(13))
+        return (
+            primary,
+            normalizedSupplement(supplement, for: primary)
+        )
+    }
+
+    private static func normalizedSupplement(_ value: String, for primary: String) -> String? {
+        guard primary.hasPrefix("977"),
+              value.count == 2 || value.count == 5,
+              value.allSatisfy(\.isNumber) else {
+            return nil
+        }
+        return value
     }
 
     static func isValidEAN13(_ value: String) -> Bool {

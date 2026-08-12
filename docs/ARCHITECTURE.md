@@ -52,7 +52,7 @@ Serial → SerialManifestation → Issue → OwnedItem
 - Import jest addytywny i idempotentny względem stabilnych identyfikatorów: pomija istniejące publikacje i egzemplarze, nie nadpisuje lokalnych zmian i nie wykonuje usunięć.
 - Zewnętrzne ID są zachowywane przez round-trip, nawet gdy iOS potrzebuje wewnętrznego UUID. Dekodowanie i walidacja importu odbywają się poza głównym wątkiem, przed atomowym zapisem do SwiftData.
 
-Skan natychmiast przechodzi do edytowalnego formularza. Lookup działa asynchronicznie i nie blokuje ręcznego uzupełnienia ani zapisu publikacji.
+Poprawny ISBN 978/979 albo kod prasy 977 przechodzi do edytowalnego formularza. Inny EAN, błędna suma kontrolna lub niepublikacyjny QR pozostają w skanerze z wyjaśnieniem. Lookup działa asynchronicznie i nie blokuje ręcznego uzupełnienia ani zapisu publikacji.
 
 ## Wzbogacanie metadanych książek
 
@@ -72,9 +72,17 @@ formularz, który użytkownik może poprawić przed zapisem
 - Lookup jest uruchamiany przez użytkownika dla pojedynczego ISBN; nie ma działania wsadowego ani wzbogacania w tle.
 - Pierwszy użyteczny wynik kończy kaskadę. Awaria BN nie blokuje próby w Open Library, a formularz zawsze pozwala kontynuować ręcznie.
 - Zmiany wprowadzone w formularzu podczas trwania zapytania nie są nadpisywane odpowiedzią katalogu.
-- Open Library jest eksperymentalnym fallbackiem low-volume. Żądanie używa cache HTTP `returnCacheDataElseLoad` i identyfikującego `User-Agent`; nie jest to trwały cache aplikacyjny ani podstawa do hurtowego pobierania.
+- Open Library jest eksperymentalnym fallbackiem low-volume. Żądanie używa identyfikującego `User-Agent`, a znormalizowana odpowiedź trafia do jawnego cache aplikacyjnego: trafienia na 30 dni, brak rekordu na 24 godziny, z możliwością użycia starego pozytywnego wpisu podczas awarii do roku.
 - Do zewnętrznych katalogów trafia znormalizowany ISBN w adresie zapytania. Kolekcja, lokalizacja egzemplarza i notatki pozostają lokalne.
 - `metadata.source` zapisuje źródło zaakceptowanego wyniku jako `bn` lub `openlibrary`.
+
+## Okładki i cache offline
+
+- `Publication` przechowuje wyłącznie zaakceptowany zdalny URL okładki i jej źródło. Lokalny plik obrazu nie jest częścią modelu kolekcji, eksportu ani przyszłej synchronizacji.
+- Brakujący URL książki z poprawnym ISBN może zostać wyprowadzony z oficjalnego [Open Library Covers API](https://openlibrary.org/dev/docs/api/covers). Okładka ma osobne provenance, dlatego opis z BN może używać obrazu z Open Library.
+- Plikowy cache okładek znajduje się w Application Support, jest wyłączony z backupu, waliduje HTTPS, host, MIME, rozmiar i wymiary, skaluje obraz oraz ogranicza całość polityką LRU.
+- Lista biblioteki czyta wyłącznie cache dyskowy. Pobranie sieciowe jest dozwolone po skanie/lookupie albo otwarciu szczegółów, nie podczas zwykłego przewijania całej kolekcji.
+- Importowany URL z nieznanego hosta może zostać zachowany dla round-trip, lecz klient nie pobiera go automatycznie.
 
 ## Web
 

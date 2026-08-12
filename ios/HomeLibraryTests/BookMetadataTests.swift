@@ -3,6 +3,21 @@ import XCTest
 @testable import HomeLibrary
 
 final class BookMetadataTests: XCTestCase {
+    func testCustomCascadeNeverInfersPilotSourceFromProviderPosition() async throws {
+        let primary = StubBookMetadataProvider(result: .success(nil))
+        let fallback = StubBookMetadataProvider(result: .success(nil))
+        let recorder = LookupTraceCollector()
+        let provider = CascadingBookMetadataProvider(
+            providers: [primary, fallback],
+            observer: recorder.observer
+        )
+
+        _ = try await provider.lookup(isbn: "9780306406157")
+
+        let metrics = await recorder.values
+        XCTAssertEqual(metrics, [])
+    }
+
     func testCascadeStopsAfterFirstMatch() async throws {
         let primary = StubBookMetadataProvider(result: .success(Self.bnMetadata))
         let fallback = StubBookMetadataProvider(result: .success(Self.openLibraryMetadata))
@@ -12,9 +27,102 @@ final class BookMetadataTests: XCTestCase {
         let primaryCalls = await primary.callCount
         let fallbackCalls = await fallback.callCount
 
-        XCTAssertEqual(result, Self.bnMetadata)
+        XCTAssertEqual(result, Self.bnMetadata.addingFallbackCover(forISBN: "9780306406157"))
         XCTAssertEqual(primaryCalls, 1)
         XCTAssertEqual(fallbackCalls, 0)
+    }
+
+    func testOptInEnrichesBNResultWithExactOpenLibraryCover() async throws {
+        let trace = LookupTraceCollector()
+        let nationalLibrary = StubBookMetadataProvider(result: .success(Self.bnMetadata))
+        let openLibrary = StubBookMetadataProvider(result: .success(Self.exactCoverMetadata))
+        let provider = CascadingBookMetadataProvider(
+            nationalLibrary: nationalLibrary,
+            openLibrary: openLibrary,
+            nationalLibraryCoverEnrichment: openLibrary,
+            observer: trace.observer
+        )
+
+        let lookupResult = try await provider.lookup(isbn: "9780306406157")
+        let result = try XCTUnwrap(lookupResult)
+
+        XCTAssertEqual(result.source, .nationalLibrary)
+        XCTAssertEqual(result.title, Self.bnMetadata.title)
+        XCTAssertEqual(result.subtitle, Self.bnMetadata.subtitle)
+        XCTAssertEqual(result.authors, Self.bnMetadata.authors)
+        XCTAssertEqual(result.publisher, Self.bnMetadata.publisher)
+        XCTAssertEqual(result.publicationYear, Self.bnMetadata.publicationYear)
+        XCTAssertEqual(result.language, Self.bnMetadata.language)
+        XCTAssertEqual(
+            result.coverURL?.absoluteString,
+            "https://covers.openlibrary.org/b/id/12345-M.jpg?default=false"
+        )
+        XCTAssertEqual(result.coverSource, .openLibrary)
+        let nationalLibraryCalls = await nationalLibrary.callCount
+        let openLibraryCalls = await openLibrary.callCount
+        let metrics = await trace.values
+        XCTAssertEqual(nationalLibraryCalls, 1)
+        XCTAssertEqual(openLibraryCalls, 1)
+        XCTAssertEqual(metrics, [
+            PilotLookupMetric(source: .nationalLibrary, outcome: .found),
+            PilotLookupMetric(source: .openLibrary, outcome: .found)
+        ])
+    }
+
+    func testOptInKeepsBNResultAndISBNCoverWhenOpenLibraryHasNoMatch() async throws {
+        let trace = LookupTraceCollector()
+        let nationalLibrary = StubBookMetadataProvider(result: .success(Self.bnMetadata))
+        let openLibrary = StubBookMetadataProvider(result: .success(nil))
+        let provider = CascadingBookMetadataProvider(
+            nationalLibrary: nationalLibrary,
+            openLibrary: openLibrary,
+            nationalLibraryCoverEnrichment: openLibrary,
+            observer: trace.observer
+        )
+
+        let result = try await provider.lookup(isbn: "9780306406157")
+
+        XCTAssertEqual(
+            result,
+            Self.bnMetadata.addingFallbackCover(forISBN: "9780306406157")
+        )
+        let nationalLibraryCalls = await nationalLibrary.callCount
+        let openLibraryCalls = await openLibrary.callCount
+        let metrics = await trace.values
+        XCTAssertEqual(nationalLibraryCalls, 1)
+        XCTAssertEqual(openLibraryCalls, 1)
+        XCTAssertEqual(metrics, [
+            PilotLookupMetric(source: .nationalLibrary, outcome: .found),
+            PilotLookupMetric(source: .openLibrary, outcome: .notFound)
+        ])
+    }
+
+    func testOptInKeepsBNResultAndISBNCoverWhenOpenLibraryFails() async throws {
+        let trace = LookupTraceCollector()
+        let nationalLibrary = StubBookMetadataProvider(result: .success(Self.bnMetadata))
+        let openLibrary = StubBookMetadataProvider(result: .failure(.unavailable))
+        let provider = CascadingBookMetadataProvider(
+            nationalLibrary: nationalLibrary,
+            openLibrary: openLibrary,
+            nationalLibraryCoverEnrichment: openLibrary,
+            observer: trace.observer
+        )
+
+        let result = try await provider.lookup(isbn: "9780306406157")
+
+        XCTAssertEqual(
+            result,
+            Self.bnMetadata.addingFallbackCover(forISBN: "9780306406157")
+        )
+        let nationalLibraryCalls = await nationalLibrary.callCount
+        let openLibraryCalls = await openLibrary.callCount
+        let metrics = await trace.values
+        XCTAssertEqual(nationalLibraryCalls, 1)
+        XCTAssertEqual(openLibraryCalls, 1)
+        XCTAssertEqual(metrics, [
+            PilotLookupMetric(source: .nationalLibrary, outcome: .found),
+            PilotLookupMetric(source: .openLibrary, outcome: .failed)
+        ])
     }
 
     func testCascadeUsesOpenLibraryWhenBNHasNoMatch() async throws {
@@ -26,9 +134,130 @@ final class BookMetadataTests: XCTestCase {
         let primaryCalls = await primary.callCount
         let fallbackCalls = await fallback.callCount
 
-        XCTAssertEqual(result, Self.openLibraryMetadata)
+        XCTAssertEqual(result, Self.openLibraryMetadata.addingFallbackCover(forISBN: "9780306406157"))
         XCTAssertEqual(primaryCalls, 1)
         XCTAssertEqual(fallbackCalls, 1)
+    }
+
+    func testThreeStageCascadeCallsLOCOnlyAfterBNAndOpenLibraryMiss() async throws {
+        let order = BookLookupOrderRecorder()
+        let trace = LookupTraceCollector()
+        let nationalLibrary = OrderedBookMetadataProvider(
+            label: "bn",
+            result: .success(nil),
+            order: order
+        )
+        let openLibrary = OrderedBookMetadataProvider(
+            label: "ol",
+            result: .success(nil),
+            order: order
+        )
+        let libraryOfCongress = OrderedBookMetadataProvider(
+            label: "loc",
+            result: .success(Self.libraryOfCongressMetadata),
+            order: order
+        )
+        let provider = CascadingBookMetadataProvider(
+            nationalLibrary: nationalLibrary,
+            openLibrary: openLibrary,
+            libraryOfCongress: libraryOfCongress,
+            observer: trace.observer
+        )
+
+        let result = try await provider.lookup(isbn: "9780306406157")
+
+        XCTAssertEqual(
+            result,
+            Self.libraryOfCongressMetadata.addingFallbackCover(
+                forISBN: "9780306406157"
+            )
+        )
+        let calls = await order.values
+        let metrics = await trace.values
+        XCTAssertEqual(calls, ["bn", "ol", "loc"])
+        XCTAssertEqual(metrics, [
+            PilotLookupMetric(source: .nationalLibrary, outcome: .notFound),
+            PilotLookupMetric(source: .openLibrary, outcome: .notFound),
+            PilotLookupMetric(source: .libraryOfCongress, outcome: .found)
+        ])
+    }
+
+    func testThreeStageCascadeRecoversFromOpenLibraryFailureWithLOC() async throws {
+        let order = BookLookupOrderRecorder()
+        let provider = CascadingBookMetadataProvider(
+            nationalLibrary: OrderedBookMetadataProvider(
+                label: "bn", result: .success(nil), order: order
+            ),
+            openLibrary: OrderedBookMetadataProvider(
+                label: "ol", result: .failure(.unavailable), order: order
+            ),
+            libraryOfCongress: OrderedBookMetadataProvider(
+                label: "loc",
+                result: .success(Self.libraryOfCongressMetadata),
+                order: order
+            )
+        )
+
+        let result = try await provider.lookup(isbn: "9780306406157")
+
+        XCTAssertEqual(result?.source, .libraryOfCongress)
+        let calls = await order.values
+        XCTAssertEqual(calls, ["bn", "ol", "loc"])
+    }
+
+    func testThreeStageCascadePreservesEarlierFailureWhenLOCHasNoMatch() async {
+        let order = BookLookupOrderRecorder()
+        let provider = CascadingBookMetadataProvider(
+            nationalLibrary: OrderedBookMetadataProvider(
+                label: "bn", result: .success(nil), order: order
+            ),
+            openLibrary: OrderedBookMetadataProvider(
+                label: "ol", result: .failure(.unavailable), order: order
+            ),
+            libraryOfCongress: OrderedBookMetadataProvider(
+                label: "loc", result: .success(nil), order: order
+            )
+        )
+
+        do {
+            _ = try await provider.lookup(isbn: "9780306406157")
+            XCTFail("Brak LOC nie może ukryć awarii Open Library.")
+        } catch {
+            XCTAssertEqual(error as? StubMetadataError, .unavailable)
+        }
+
+        let calls = await order.values
+        XCTAssertEqual(calls, ["bn", "ol", "loc"])
+    }
+
+    func testThreeStageCascadeCancellationNeverCallsLOC() async {
+        let order = BookLookupOrderRecorder()
+        let libraryOfCongress = OrderedBookMetadataProvider(
+            label: "loc",
+            result: .success(Self.libraryOfCongressMetadata),
+            order: order
+        )
+        let provider = CascadingBookMetadataProvider(
+            nationalLibrary: OrderedBookMetadataProvider(
+                label: "bn", result: .success(nil), order: order
+            ),
+            openLibrary: OrderedCancelledBookMetadataProvider(
+                label: "ol", order: order
+            ),
+            libraryOfCongress: libraryOfCongress
+        )
+
+        do {
+            _ = try await provider.lookup(isbn: "9780306406157")
+            XCTFail("Anulowanie Open Library musi być terminalne.")
+        } catch {
+            XCTAssertTrue(error is CancellationError)
+        }
+
+        let calls = await order.values
+        let locCalls = await libraryOfCongress.callCount
+        XCTAssertEqual(calls, ["bn", "ol"])
+        XCTAssertEqual(locCalls, 0)
     }
 
     func testCascadeRecoversWhenPrimarySourceFails() async throws {
@@ -40,7 +269,7 @@ final class BookMetadataTests: XCTestCase {
         let primaryCalls = await primary.callCount
         let fallbackCalls = await fallback.callCount
 
-        XCTAssertEqual(result, Self.openLibraryMetadata)
+        XCTAssertEqual(result, Self.openLibraryMetadata.addingFallbackCover(forISBN: "9780306406157"))
         XCTAssertEqual(primaryCalls, 1)
         XCTAssertEqual(fallbackCalls, 1)
     }
@@ -68,7 +297,7 @@ final class BookMetadataTests: XCTestCase {
         let primaryCalls = await primary.callCount
         let fallbackCalls = await fallback.callCount
 
-        XCTAssertEqual(result, Self.openLibraryMetadata)
+        XCTAssertEqual(result, Self.openLibraryMetadata.addingFallbackCover(forISBN: "9780306406157"))
         XCTAssertEqual(primaryCalls, 1)
         XCTAssertEqual(fallbackCalls, 1)
     }
@@ -187,6 +416,164 @@ final class BookMetadataTests: XCTestCase {
         XCTAssertEqual(primaryCalls, 1)
         XCTAssertEqual(fallbackCalls, 0)
     }
+
+    func testCascadeTraceContainsOnlyActuallyAttemptedSources() async throws {
+        let trace = LookupTraceCollector()
+        let primary = StubBookMetadataProvider(result: .success(nil))
+        let fallback = StubBookMetadataProvider(result: .success(Self.openLibraryMetadata))
+        let provider = CascadingBookMetadataProvider(
+            nationalLibrary: primary,
+            openLibrary: fallback,
+            observer: trace.observer
+        )
+
+        _ = try await provider.lookup(isbn: "9780306406157")
+
+        let values = await trace.values
+        XCTAssertEqual(values, [
+            PilotLookupMetric(source: .nationalLibrary, outcome: .notFound),
+            PilotLookupMetric(source: .openLibrary, outcome: .found)
+        ])
+    }
+
+    func testCascadeTraceRecordsFailureThenDefinitiveNoMatch() async {
+        let trace = LookupTraceCollector()
+        let primary = StubBookMetadataProvider(result: .failure(.unavailable))
+        let fallback = StubBookMetadataProvider(result: .success(nil))
+        let provider = CascadingBookMetadataProvider(
+            nationalLibrary: primary,
+            openLibrary: fallback,
+            observer: trace.observer
+        )
+
+        do {
+            _ = try await provider.lookup(isbn: "9780306406157")
+            XCTFail("Awaria BN powinna pozostać wynikiem całej kaskady.")
+        } catch {
+            XCTAssertEqual(error as? StubMetadataError, .unavailable)
+        }
+
+        let values = await trace.values
+        XCTAssertEqual(values, [
+            PilotLookupMetric(source: .nationalLibrary, outcome: .failed),
+            PilotLookupMetric(source: .openLibrary, outcome: .notFound)
+        ])
+    }
+
+    func testCascadeTraceRecordsCancellationAndNeverInventsFallbackAttempt() async {
+        let trace = LookupTraceCollector()
+        let primary = CancelledTransportBookMetadataProvider()
+        let fallback = StubBookMetadataProvider(result: .success(Self.openLibraryMetadata))
+        let provider = CascadingBookMetadataProvider(
+            nationalLibrary: primary,
+            openLibrary: fallback,
+            observer: trace.observer
+        )
+
+        do {
+            _ = try await provider.lookup(isbn: "9780306406157")
+            XCTFail("Anulowany transport powinien przerwać kaskadę.")
+        } catch {
+            XCTAssertTrue(error is CancellationError)
+        }
+
+        let values = await trace.values
+        XCTAssertEqual(values, [
+            PilotLookupMetric(source: .nationalLibrary, outcome: .cancelled)
+        ])
+    }
+
+    func testInvalidISBNDoesNotCreateLookupTrace() async {
+        let trace = LookupTraceCollector()
+        let provider = CascadingBookMetadataProvider(
+            providers: [StubBookMetadataProvider(result: .success(Self.bnMetadata))],
+            observer: trace.observer
+        )
+
+        do {
+            _ = try await provider.lookup(isbn: "9780306406158")
+            XCTFail("Nieprawidłowy ISBN powinien zostać odrzucony.")
+        } catch {
+            XCTAssertEqual(error as? BookMetadataLookupError, .invalidISBN)
+        }
+
+        let values = await trace.values
+        XCTAssertEqual(values, [])
+    }
+
+    func testOpenLibraryCoverURLUsesNormalizedISBNMediumSizeAndExplicit404() throws {
+        let url = try XCTUnwrap(OpenLibraryCoverURL.url(forISBN: "0-306-40615-2"))
+
+        XCTAssertEqual(url.scheme, "https")
+        XCTAssertEqual(url.host, "covers.openlibrary.org")
+        XCTAssertEqual(url.path, "/b/isbn/9780306406157-M.jpg")
+        XCTAssertEqual(URLComponents(url: url, resolvingAgainstBaseURL: false)?
+            .queryItems?.first(where: { $0.name == "default" })?.value, "false")
+        XCTAssertNil(OpenLibraryCoverURL.url(forISBN: "9780306406158"))
+    }
+
+    func testRemoteCoverPolicyPreservesHTTPSReferencesButOnlyAutoLoadsTrustedDefaultPort() throws {
+        let trusted = try XCTUnwrap(RemoteCoverURLPolicy.validatedReference(
+            "HTTPS://covers.openlibrary.org/b/id/123-M.jpg"
+        ))
+        XCTAssertTrue(RemoteCoverURLPolicy.canLoadAutomatically(trusted))
+
+        let trusted443 = try XCTUnwrap(RemoteCoverURLPolicy.validatedReference(
+            "https://covers.openlibrary.org:443/b/id/123-M.jpg"
+        ))
+        XCTAssertTrue(RemoteCoverURLPolicy.canLoadAutomatically(trusted443))
+
+        let customPort = try XCTUnwrap(RemoteCoverURLPolicy.validatedReference(
+            "https://covers.openlibrary.org:444/b/id/123-M.jpg"
+        ))
+        XCTAssertFalse(RemoteCoverURLPolicy.canLoadAutomatically(customPort))
+
+        let foreignHost = try XCTUnwrap(RemoteCoverURLPolicy.validatedReference(
+            "https://example.com/cover.jpg"
+        ))
+        XCTAssertFalse(RemoteCoverURLPolicy.canLoadAutomatically(foreignHost))
+    }
+
+    func testRemoteCoverPolicyRejectsCredentialsUnicodeWhitespaceAndByteOverflow() {
+        for rejected in [
+            "https://user:secret@covers.openlibrary.org/b/id/123-M.jpg",
+            "https://covers.openlibrary.org/okładka.jpg",
+            "https://covers.openlibrary.org/cover name.jpg",
+            "https://covers.openlibrary.org/\(String(repeating: "a", count: 2_049))",
+            "https://example.com/\(String(repeating: "<", count: 700))"
+        ] {
+            XCTAssertNil(RemoteCoverURLPolicy.validatedReference(rejected), rejected)
+        }
+    }
+
+    func testPublicationPreservesForeignCoverForExportButNeverAutoLoadsIt() throws {
+        let publication = Publication(
+            type: .book,
+            title: "Test",
+            isbn13: "9780306406157",
+            coverURLString: "https://cdn.example.org/cover.jpg",
+            coverSource: "import"
+        )
+
+        XCTAssertEqual(
+            publication.resolvedCoverURL,
+            OpenLibraryCoverURL.url(forISBN: "9780306406157")
+        )
+        XCTAssertEqual(publication.resolvedCoverSource, BookMetadataSource.openLibrary.rawValue)
+        XCTAssertEqual(publication.exportCoverURL?.absoluteString, "https://cdn.example.org/cover.jpg")
+        XCTAssertEqual(publication.exportCoverSource, "import")
+
+        publication.isbn13 = ""
+        XCTAssertNil(publication.resolvedCoverURL)
+        XCTAssertEqual(publication.exportCoverURL?.absoluteString, "https://cdn.example.org/cover.jpg")
+
+        publication.coverURLString = "https://covers.openlibrary.org:444/b/id/123-M.jpg"
+        XCTAssertNil(publication.resolvedCoverURL)
+        XCTAssertEqual(
+            publication.exportCoverURL?.absoluteString,
+            "https://covers.openlibrary.org:444/b/id/123-M.jpg"
+        )
+    }
 }
 
 private extension BookMetadataTests {
@@ -207,6 +594,28 @@ private extension BookMetadataTests {
         authors: ["Author"],
         publisher: nil,
         publicationYear: 2025,
+        language: "en"
+    )
+
+    static let exactCoverMetadata = BookMetadata(
+        source: .openLibrary,
+        title: "Exact edition",
+        subtitle: nil,
+        authors: [],
+        publisher: nil,
+        publicationYear: nil,
+        language: nil,
+        coverURL: OpenLibraryCoverURL.url(forCoverID: 12_345),
+        coverSource: .openLibrary
+    )
+
+    static let libraryOfCongressMetadata = BookMetadata(
+        source: .libraryOfCongress,
+        title: "LOC edition",
+        subtitle: nil,
+        authors: ["Library author"],
+        publisher: "Library publisher",
+        publicationYear: 1981,
         language: "en"
     )
 
@@ -246,5 +655,65 @@ private actor CancelledTransportBookMetadataProvider: BookMetadataProviding {
     func lookup(isbn: String) async throws -> BookMetadata? {
         callCount += 1
         throw URLError(.cancelled)
+    }
+}
+
+private actor BookLookupOrderRecorder {
+    private(set) var values: [String] = []
+
+    func append(_ value: String) {
+        values.append(value)
+    }
+}
+
+private actor OrderedBookMetadataProvider: BookMetadataProviding {
+    private let label: String
+    private let result: Result<BookMetadata?, StubMetadataError>
+    private let order: BookLookupOrderRecorder
+    private(set) var callCount = 0
+
+    init(
+        label: String,
+        result: Result<BookMetadata?, StubMetadataError>,
+        order: BookLookupOrderRecorder
+    ) {
+        self.label = label
+        self.result = result
+        self.order = order
+    }
+
+    func lookup(isbn: String) async throws -> BookMetadata? {
+        callCount += 1
+        await order.append(label)
+        return try result.get()
+    }
+}
+
+private actor OrderedCancelledBookMetadataProvider: BookMetadataProviding {
+    private let label: String
+    private let order: BookLookupOrderRecorder
+
+    init(label: String, order: BookLookupOrderRecorder) {
+        self.label = label
+        self.order = order
+    }
+
+    func lookup(isbn: String) async throws -> BookMetadata? {
+        await order.append(label)
+        throw URLError(.cancelled)
+    }
+}
+
+private actor LookupTraceCollector {
+    private(set) var values: [PilotLookupMetric] = []
+
+    nonisolated var observer: BookMetadataLookupObserver {
+        BookMetadataLookupObserver { metric in
+            await self.append(metric)
+        }
+    }
+
+    private func append(_ metric: PilotLookupMetric) {
+        values.append(metric)
     }
 }

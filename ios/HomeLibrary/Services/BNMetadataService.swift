@@ -75,7 +75,7 @@ struct BNMetadataService: BookMetadataProviding {
 
         let availableRecords = (payload.bibs ?? []).filter { $0.deleted != true }
         let record = availableRecords.first(where: {
-            Self.normalizedISBN($0.isbnIssn) == isbn13
+            Self.isbn13Candidates(in: $0).contains(isbn13)
         })
 
         guard let record else { return nil }
@@ -232,9 +232,68 @@ private extension BNMetadataService {
         }
     }
 
-    static func normalizedISBN(_ value: String?) -> String? {
-        guard let value else { return nil }
-        return PublicationIdentifierParser.parse(value).isbn13
+    static func isbn13Candidates(in record: BibliographicRecord) -> Set<String> {
+        var rawValues: [String] = []
+        if let isbnIssn = record.isbnIssn {
+            rawValues.append(isbnIssn)
+        }
+        rawValues.append(contentsOf: subfieldValues(in: record, tag: "020", code: "a"))
+
+        return Set(rawValues.flatMap { isbn13Candidates(from: $0) })
+    }
+
+    static func isbn13Candidates(from value: String) -> [String] {
+        // BN occasionally aggregates multiple ISBNs in one top-level value.
+        // Parsing the whole value remains useful for a single ISBN formatted
+        // with spaces, while token parsing handles multiple identifiers and
+        // catalog annotations such as binding or price information.
+        let tokens = value.split(whereSeparator: { character in
+            !character.isNumber &&
+                character != "X" &&
+                character != "x" &&
+                character != "-" &&
+                character != "‐" &&
+                character != "‑"
+        })
+
+        return uniqueISBNs(
+            ([value] + tokens.map(String.init)).compactMap { candidate in
+                let parsed = PublicationIdentifierParser.parse(candidate)
+                guard parsed.isValid,
+                      parsed.kind == .isbn10 || parsed.kind == .isbn13 else {
+                    return nil
+                }
+                return parsed.isbn13
+            }
+        )
+    }
+
+    static func subfieldValues(
+        in record: BibliographicRecord,
+        tag: String,
+        code: String
+    ) -> [String] {
+        guard let fields = record.marc?.fields else { return [] }
+
+        return fields.flatMap { field -> [String] in
+            guard case let .object(value)? = field[tag],
+                  case let .array(rawSubfields)? = value["subfields"] else {
+                return []
+            }
+
+            return rawSubfields.compactMap { rawSubfield in
+                guard case let .object(subfield) = rawSubfield,
+                      case let .string(text)? = subfield[code] else {
+                    return nil
+                }
+                return text
+            }
+        }
+    }
+
+    static func uniqueISBNs(_ values: [String]) -> [String] {
+        var seen: Set<String> = []
+        return values.filter { seen.insert($0).inserted }
     }
 
     static func trimCatalogPunctuation(_ value: String?, punctuation: String) -> String? {

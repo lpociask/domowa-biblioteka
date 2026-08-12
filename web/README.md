@@ -2,6 +2,8 @@
 
 Statyczny, responsywny podgląd kolekcji przeznaczony do publikacji na GitHub Pages. Nie wymaga bundlera, npm ani zewnętrznych bibliotek.
 
+WWW korzysta z tego samego znaku aplikacji co iOS. Warianty favicony, ikony ekranu początkowego i manifest aplikacji webowej znajdują się lokalnie w `assets/`; nie wymagają pobierania zasobów zewnętrznych.
+
 ## Uruchomienie lokalne
 
 Z katalogu głównego repozytorium:
@@ -24,11 +26,13 @@ Testy korzystają wyłącznie z modułów wbudowanych w Node.js.
 
 - Format wejścia i wyjścia to kanoniczny `collection.json` v1: osobne `publications[]` i `ownedItems[]` pozwalają opisać wiele fizycznych kopii jednego wydania.
 - Importer toleruje starszy format `items[]` i normalizuje go do v1.
+- Raport pomiarowy pilota z iOS jest rozpoznawany przed importem i nie zmienia kolekcji ani `localStorage`. Do WWW należy wybrać eksport JSON kolekcji z głównego menu aplikacji iOS.
 - Kanoniczny v1 wymaga poprawnych dat ISO 8601 i całkowitego roku 1–9999. Podczas scalania te same hierarchiczne lokalizacje są deduplikowane także wtedy, gdy pochodzą z różnych klientów i mają inne ID.
 - Import pliku jest ograniczony do 25 MB, tak samo jak w aplikacji iOS.
 - Bieżąca kolekcja jest przechowywana w `localStorage` pod kluczem `polka.collection.v1`.
+- Zakładka „Serie prasy” jest projekcją tylko do odczytu: grupuje numery, pokazuje wewnętrzne luki oraz rozdziela wiele fizycznych kopii od powtórzonych rekordów publikacji. Wynik nie trafia do JSON-u ani `localStorage`.
 - GitHub Pages serwuje wyłącznie pliki statyczne. Nie wysyła kolekcji do repozytorium i nie synchronizuje jej automatycznie z iPhone’em. W MVP wspólny plik JSON można eksportować i importować w obie strony między aplikacją iOS a WWW oraz przenosić między przeglądarkami.
-- Interfejs nie pobiera zewnętrznych okładek, więc samo przeglądanie katalogu nie ujawnia listy publikacji zewnętrznym serwerom obrazów.
+- Otwarcie katalogu i przewijanie domyślnej listy nie pobiera zewnętrznych okładek. Po świadomym wybraniu widoku „Okładki” albo otwarciu szczegółów aplikacja może pobrać wyłącznie obraz HTTPS z `covers.openlibrary.org`; nieznane hosty zachowuje w JSON-ie, ale ich automatycznie nie wywołuje.
 
 ## Publikacja na GitHub Pages
 

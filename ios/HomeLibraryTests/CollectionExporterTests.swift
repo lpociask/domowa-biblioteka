@@ -22,6 +22,9 @@ final class CollectionExporterTests: XCTestCase {
             issueNumber: "8/2026",
             issueDate: "2026-08",
             metadataSource: "scan",
+            coverURLString: "https://covers.openlibrary.org/b/id/123-M.jpg",
+            coverSource: "openlibrary",
+            coverImageData: Data("PRIVATE-LOCAL-COVER-SENTINEL".utf8),
             createdAt: timestamp,
             updatedAt: timestamp
         )
@@ -51,10 +54,14 @@ final class CollectionExporterTests: XCTestCase {
         XCTAssertNotNil(payload.ownedItems[0].locationId)
 
         let data = try CollectionExporter.encode(payload)
+        XCTAssertFalse(String(decoding: data, as: UTF8.self).contains("PRIVATE-LOCAL-COVER-SENTINEL"))
         let json = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
         XCTAssertEqual(json["schemaVersion"] as? Int, 1)
         XCTAssertNotNil(json["exportedAt"] as? String)
         XCTAssertEqual((json["publications"] as? [[String: Any]])?.first?["type"] as? String, "periodical")
+        let metadata = (json["publications"] as? [[String: Any]])?.first?["metadata"] as? [String: Any]
+        XCTAssertEqual(metadata?["coverUrl"] as? String, "https://covers.openlibrary.org/b/id/123-M.jpg")
+        XCTAssertEqual(metadata?["coverSource"] as? String, "openlibrary")
         XCTAssertEqual((json["ownedItems"] as? [[String: Any]])?.first?["status"] as? String, "owned")
     }
 
@@ -75,6 +82,31 @@ final class CollectionExporterTests: XCTestCase {
 
         XCTAssertEqual(first.locations, second.locations)
         XCTAssertEqual(first.ownedItems.first?.locationId, second.ownedItems.first?.locationId)
+    }
+
+    func testLocationTreeUsesTheSameCaseAndDiacriticInsensitiveIdentityAsTheApp() throws {
+        let publication = Publication(type: .book, title: "Test")
+        let accented = OwnedItem(
+            publication: publication,
+            locationPathText: "Dom / Regał / Półka 1"
+        )
+        let plain = OwnedItem(
+            publication: publication,
+            locationPathText: "dom / Regal / Polka 1"
+        )
+
+        let payload = CollectionExporter.makeExport(
+            items: [accented, plain],
+            collectionID: UUID().uuidString,
+            collectionName: "Test"
+        )
+
+        XCTAssertEqual(payload.locations.count, 3)
+        XCTAssertEqual(payload.ownedItems.count, 2)
+        XCTAssertEqual(
+            try XCTUnwrap(payload.ownedItems.first?.locationId),
+            try XCTUnwrap(payload.ownedItems.last?.locationId)
+        )
     }
 
     func testEmptyLocationDoesNotCreateSyntheticLocation() {

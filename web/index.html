@@ -3,12 +3,21 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="theme-color" content="#173f37" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; img-src 'self' https://covers.openlibrary.org; script-src 'self'; style-src 'self' 'unsafe-inline'; object-src 'none'; base-uri 'self'; form-action 'self'"
+    />
+    <meta name="theme-color" content="#f4eddf" />
     <meta
       name="description"
       content="Półka — prywatny katalog książek i prasy. Wyszukuj publikacje i sprawdzaj, gdzie leżą."
     />
     <title>Półka — katalog publikacji</title>
+    <meta name="application-name" content="Półka" />
+    <meta name="apple-mobile-web-app-title" content="Półka" />
+    <link rel="icon" type="image/png" sizes="32x32" href="./assets/app-icon-32.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="./assets/apple-touch-icon.png" />
+    <link rel="manifest" href="./manifest.webmanifest" />
     <link rel="stylesheet" href="./styles.css" />
     <script type="module" src="./app.js"></script>
   </head>
@@ -17,11 +26,7 @@
 
     <header class="site-header">
       <a class="brand" href="./" aria-label="Półka — strona główna">
-        <svg class="brand-mark" viewBox="0 0 40 40" aria-hidden="true">
-          <path d="M8 9.5a3 3 0 0 1 3-3h7v27h-7a3 3 0 0 1-3-3v-21Z" />
-          <path d="M20.5 6.5H29a3 3 0 0 1 3 3v21a3 3 0 0 1-3 3h-8.5v-27Z" />
-          <path d="M12.5 12h2M24.5 12h3" />
-        </svg>
+        <img class="brand-mark" src="./assets/app-icon-192.png" width="38" height="38" alt="" />
         <span>Półka</span>
       </a>
 
@@ -31,11 +36,11 @@
           <span class="local-status-wide">Lokalnie w przeglądarce</span>
           <span class="local-status-short">Lokalnie</span>
         </span>
-        <button class="button button-secondary header-button" id="export-button" type="button">
+        <button class="button button-secondary header-button" id="export-button" type="button" aria-label="Eksportuj kolekcję do JSON">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 15v4h14v-4" /></svg>
           <span>Eksportuj</span>
         </button>
-        <button class="button button-primary header-button" id="import-button" type="button">
+        <button class="button button-primary header-button" id="import-button" type="button" aria-label="Importuj kolekcję z JSON">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15V3m0 0 4 4m-4-4L8 7M5 10v9h14v-9" /></svg>
           <span>Importuj JSON</span>
         </button>
@@ -54,31 +59,39 @@
     <main id="main-content">
       <section class="collection-hero" aria-labelledby="collection-title">
         <div class="hero-copy">
-          <p class="eyebrow">Twój prywatny inwentarz</p>
-          <h1 id="collection-title">Kolekcja demonstracyjna</h1>
+          <p class="eyebrow" id="collection-eyebrow">Kolekcja · 00</p>
+          <div class="masthead-title">
+            <h1 id="collection-title">Kolekcja demonstracyjna</h1>
+            <span class="masthead-dot" aria-hidden="true"></span>
+          </div>
           <p class="hero-description">
             Książki i prasa w jednym miejscu. Znajdź publikację, sprawdź konkretny egzemplarz i od razu zobacz, gdzie go odłożyłeś.
           </p>
         </div>
 
-        <dl class="stats" aria-label="Podsumowanie kolekcji">
-          <div class="stat stat-primary">
-            <dt>Egzemplarzy</dt>
-            <dd id="stat-total">—</dd>
-          </div>
-          <div class="stat">
-            <dt>Książek</dt>
-            <dd id="stat-books">—</dd>
-          </div>
-          <div class="stat">
-            <dt>Prasy</dt>
-            <dd id="stat-press">—</dd>
-          </div>
-          <div class="stat">
-            <dt>Bez miejsca</dt>
-            <dd id="stat-unlocated">—</dd>
-          </div>
-        </dl>
+        <div class="hero-summary">
+          <dl class="stats" aria-label="Podsumowanie kolekcji">
+            <div class="stat stat-primary">
+              <dt>Egz.</dt>
+              <dd id="stat-total">—</dd>
+            </div>
+            <div class="stat">
+              <dt>Książek</dt>
+              <dd id="stat-books">—</dd>
+            </div>
+            <div class="stat">
+              <dt>Prasy</dt>
+              <dd id="stat-press">—</dd>
+            </div>
+            <div class="stat">
+              <dt>Bez lok.</dt>
+              <dd id="stat-unlocated">—</dd>
+            </div>
+          </dl>
+          <button class="button button-primary hero-import-button" id="hero-import-button" type="button">
+            Importuj kolekcję
+          </button>
+        </div>
       </section>
 
       <section class="catalog" aria-labelledby="catalog-heading">
@@ -90,7 +103,27 @@
           <button class="text-button" id="reset-button" type="button">Przywróć dane przykładowe</button>
         </div>
 
-        <div class="catalog-toolbar">
+        <div class="catalog-mode-switch" role="tablist" aria-label="Widok kolekcji">
+          <button
+            class="catalog-mode-button is-active"
+            id="catalog-tab"
+            type="button"
+            role="tab"
+            aria-selected="true"
+            aria-controls="catalog-panel"
+          >Katalog</button>
+          <button
+            class="catalog-mode-button"
+            id="periodicals-tab"
+            type="button"
+            role="tab"
+            aria-selected="false"
+            aria-controls="periodicals-panel"
+          >Serie prasy</button>
+        </div>
+
+        <div id="catalog-panel" role="tabpanel" aria-labelledby="catalog-tab">
+          <div class="catalog-toolbar">
           <div class="search-field">
             <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5" /><path d="m16 16 4 4" /></svg>
             <label class="sr-only" for="search-input">Szukaj w kolekcji</label>
@@ -104,7 +137,7 @@
             <kbd class="search-shortcut" aria-hidden="true">⌘ K</kbd>
           </div>
 
-          <div class="filter-row" aria-label="Filtry katalogu">
+          <div class="filter-row" role="group" aria-label="Filtry katalogu">
             <label class="select-field">
               <span>Typ</span>
               <select id="type-filter">
@@ -129,30 +162,56 @@
               </select>
             </label>
             <div class="view-switch" role="group" aria-label="Sposób wyświetlania">
-              <button class="view-button is-active" id="grid-view-button" type="button" aria-pressed="true" aria-label="Widok kafelków">
+              <button class="view-button" id="grid-view-button" type="button" aria-pressed="false" aria-label="Okładki — widok katalogu" aria-controls="publication-grid">
                 <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="6" height="6" rx="1" /><rect x="14" y="4" width="6" height="6" rx="1" /><rect x="4" y="14" width="6" height="6" rx="1" /><rect x="14" y="14" width="6" height="6" rx="1" /></svg>
+                <span>Okładki</span>
               </button>
-              <button class="view-button" id="list-view-button" type="button" aria-pressed="false" aria-label="Widok listy">
+              <button class="view-button is-active" id="list-view-button" type="button" aria-pressed="true" aria-label="Lista — widok katalogu" aria-controls="publication-grid">
                 <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6h11M9 12h11M9 18h11" /><circle cx="5" cy="6" r="1" /><circle cx="5" cy="12" r="1" /><circle cx="5" cy="18" r="1" /></svg>
+                <span>Lista</span>
               </button>
             </div>
           </div>
-        </div>
-
-        <div class="results-meta">
-          <p id="results-count" aria-live="polite">Ładowanie katalogu…</p>
-          <button class="clear-filters" id="clear-filters-button" type="button" hidden>Wyczyść filtry</button>
-        </div>
-
-        <div class="publication-grid" id="publication-grid" aria-busy="true"></div>
-
-        <div class="empty-state" id="empty-state" hidden>
-          <div class="empty-illustration" aria-hidden="true">
-            <span></span><span></span><span></span>
           </div>
-          <h3>Nie znaleźliśmy takiej publikacji</h3>
-          <p>Spróbuj krótszej frazy albo usuń część filtrów.</p>
-          <button class="button button-secondary" id="empty-clear-button" type="button">Wyczyść filtry</button>
+
+          <div class="results-meta">
+            <p id="results-count" aria-live="polite">Ładowanie katalogu…</p>
+            <button class="clear-filters" id="clear-filters-button" type="button" hidden>Wyczyść filtry</button>
+          </div>
+
+          <div class="publication-grid is-list" id="publication-grid" aria-busy="true"></div>
+
+          <div class="empty-state" id="empty-state" hidden>
+            <h3>Nie znaleźliśmy takiej publikacji</h3>
+            <p>Spróbuj krótszej frazy albo usuń część filtrów.</p>
+            <button class="button button-secondary" id="empty-clear-button" type="button">Wyczyść filtry</button>
+          </div>
+        </div>
+
+        <div id="periodicals-panel" role="tabpanel" aria-labelledby="periodicals-tab" hidden>
+          <div class="periodical-toolbar">
+            <div>
+              <p class="periodical-toolbar-title">Ciągłość kolekcji</p>
+              <p class="periodical-toolbar-description">Luki i powtórzenia są wyliczane lokalnie z bieżącego katalogu.</p>
+            </div>
+            <div class="periodical-filters" role="group" aria-label="Filtr serii prasy">
+              <button class="periodical-filter is-active" type="button" data-periodical-filter="all" aria-pressed="true">Wszystkie</button>
+              <button class="periodical-filter" type="button" data-periodical-filter="missing" aria-pressed="false">Luki</button>
+              <button class="periodical-filter" type="button" data-periodical-filter="duplicates" aria-pressed="false">Duplikaty</button>
+            </div>
+          </div>
+
+          <div class="results-meta periodical-results-meta">
+            <p id="periodical-results-count" aria-live="polite">Ładowanie serii…</p>
+            <p id="periodical-exclusions"></p>
+          </div>
+
+          <div class="periodical-series-grid" id="periodical-series-grid" aria-busy="true"></div>
+
+          <div class="empty-state" id="periodical-empty-state" hidden>
+            <h3>Brak serii dla tego filtra</h3>
+            <p>Dodaj numery prasy albo wybierz inny filtr.</p>
+          </div>
         </div>
       </section>
     </main>

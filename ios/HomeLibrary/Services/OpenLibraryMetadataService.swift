@@ -94,6 +94,48 @@ struct OpenLibraryMetadataService: BookMetadataProviding {
 private extension OpenLibraryMetadataService {
     struct Response: Decodable {
         let records: [String: Record]
+
+        private enum CodingKeys: String, CodingKey {
+            case records
+        }
+
+        init(from decoder: Decoder) throws {
+            if let array = try? decoder.unkeyedContainer() {
+                guard array.isAtEnd else {
+                    throw DecodingError.dataCorruptedError(
+                        in: array,
+                        debugDescription: "Niepusta tablica nie jest odpowiedzią katalogową Open Library."
+                    )
+                }
+                records = [:]
+                return
+            }
+
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            guard container.contains(.records) else {
+                records = [:]
+                return
+            }
+
+            if let decodedRecords = try? container.decode([String: Record].self, forKey: .records) {
+                records = decodedRecords
+                return
+            }
+
+            if let array = try? container.nestedUnkeyedContainer(forKey: .records),
+               array.isAtEnd {
+                records = [:]
+                return
+            }
+
+            throw DecodingError.typeMismatch(
+                [String: Record].self,
+                DecodingError.Context(
+                    codingPath: container.codingPath + [CodingKeys.records],
+                    debugDescription: "Pole records musi być obiektem albo pustą tablicą."
+                )
+            )
+        }
     }
 
     struct Record: Decodable {
@@ -110,6 +152,7 @@ private extension OpenLibraryMetadataService {
         let publishers: [NamedValue]?
         let publishDate: String?
         let languages: [LanguageValue]?
+        let cover: CoverLinks?
 
         enum CodingKeys: String, CodingKey {
             case title
@@ -118,11 +161,18 @@ private extension OpenLibraryMetadataService {
             case publishers
             case publishDate = "publish_date"
             case languages
+            case cover
         }
     }
 
     struct DetailsEnvelope: Decodable {
+        let thumbnailURL: String?
         let details: EditionDetails?
+
+        enum CodingKeys: String, CodingKey {
+            case thumbnailURL = "thumbnail_url"
+            case details
+        }
     }
 
     struct EditionDetails: Decodable {
@@ -132,6 +182,7 @@ private extension OpenLibraryMetadataService {
         let publishers: [String]?
         let publishDate: String?
         let languages: [LanguageValue]?
+        let covers: [Int]?
 
         enum CodingKeys: String, CodingKey {
             case title
@@ -140,7 +191,14 @@ private extension OpenLibraryMetadataService {
             case publishers
             case publishDate = "publish_date"
             case languages
+            case covers
         }
+    }
+
+    struct CoverLinks: Decodable {
+        let medium: String?
+        let large: String?
+        let small: String?
     }
 
     struct NamedValue: Decodable {
@@ -172,6 +230,13 @@ private extension OpenLibraryMetadataService {
             ?? nonEmpty(edition?.publishDate)
             ?? record.publishDates?.compactMap(nonEmpty).first
 
+        let coverURL = trustedCoverURL(record.data?.cover?.medium)
+            ?? trustedCoverURL(record.data?.cover?.large)
+            ?? trustedCoverURL(record.details?.thumbnailURL)
+            ?? edition?.covers?.compactMap {
+                OpenLibraryCoverURL.url(forCoverID: $0)
+            }.first
+
         return BookMetadata(
             source: .openLibrary,
             title: nonEmpty(record.data?.title) ?? nonEmpty(edition?.title),
@@ -179,8 +244,32 @@ private extension OpenLibraryMetadataService {
             authors: unique(authors.isEmpty ? fallbackAuthors : authors),
             publisher: dataPublisher ?? editionPublisher,
             publicationYear: extractYear(from: publishDate),
-            language: language
+            language: language,
+            coverURL: coverURL,
+            coverSource: coverURL == nil ? nil : .openLibrary
         )
+    }
+
+    static func trustedCoverURL(_ value: String?) -> URL? {
+        guard let value else { return nil }
+
+        var upgradedValue = value
+        if let components = URLComponents(string: value),
+           components.scheme?.lowercased() == "http",
+           components.host?.lowercased() == "covers.openlibrary.org",
+           components.user == nil,
+           components.password == nil,
+           components.port == nil {
+            var secureComponents = components
+            secureComponents.scheme = "https"
+            upgradedValue = secureComponents.url?.absoluteString ?? value
+        }
+
+        guard let url = RemoteCoverURLPolicy.validatedReference(upgradedValue),
+              RemoteCoverURLPolicy.canLoadAutomatically(url) else {
+            return nil
+        }
+        return url
     }
 
     static func normalizedISBN(_ value: String) -> String? {

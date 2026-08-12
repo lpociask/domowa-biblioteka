@@ -29,6 +29,8 @@ final class CollectionImporterTests: XCTestCase {
                 "identifiers": { "isbn13": "9780000000002" },
                 "metadata": {
                   "source": "Dane demonstracyjne",
+                  "coverUrl": "https://covers.openlibrary.org/b/isbn/9780000000002-M.jpg?default=false",
+                  "coverSource": "openlibrary",
                   "description": "Dodatkowe pole z WWW jest dozwolone",
                   "subjects": ["science fiction"]
                 },
@@ -84,6 +86,11 @@ final class CollectionImporterTests: XCTestCase {
         XCTAssertEqual(publications[0].externalID, "pub-solaris-demo")
         XCTAssertEqual(publications[0].title, "Solaris")
         XCTAssertEqual(publications[0].metadataSource, "Dane demonstracyjne")
+        XCTAssertEqual(
+            publications[0].coverURLString,
+            "https://covers.openlibrary.org/b/isbn/9780000000002-M.jpg?default=false"
+        )
+        XCTAssertEqual(publications[0].coverSource, "openlibrary")
         XCTAssertEqual(publications[0].createdAt.timeIntervalSince1970, 1_786_442_400.123, accuracy: 0.001)
         XCTAssertEqual(publications[0].updatedAt.timeIntervalSince1970, 1_786_446_000, accuracy: 0.001)
 
@@ -289,6 +296,267 @@ final class CollectionImporterTests: XCTestCase {
             }
             XCTAssertTrue(reason.contains("authors"))
         }
+    }
+
+    func testRejectsPeriodicalWhoseEANConflictsWithValidCompositeBarcode() {
+        let data = canonicalData(
+            publications: """
+            [
+              {
+                "id": "pub-conflicting-periodical-ean",
+                "type": "periodical",
+                "title": "Miesięcznik testowy",
+                "authors": [],
+                "identifiers": {
+                  "ean": "9770033248007",
+                  "barcode": "9771234567003+05"
+                },
+                "createdAt": "2026-08-11T10:00:00Z",
+                "updatedAt": "2026-08-11T10:00:00Z"
+              }
+            ]
+            """,
+            ownedItems: """
+            [
+              {
+                "id": "copy-conflicting-periodical-ean",
+                "publicationId": "pub-conflicting-periodical-ean",
+                "locationPath": [],
+                "status": "owned",
+                "addedAt": "2026-08-11T10:00:00Z",
+                "updatedAt": "2026-08-11T10:00:00Z"
+              }
+            ]
+            """
+        )
+        let reason = "„pub-conflicting-periodical-ean” ma niespójne identyfikatory: " +
+            "EAN „9770033248007” nie zgadza się z głównym kodem „9771234567003” " +
+            "zapisanym w barcode."
+
+        XCTAssertThrowsError(try CollectionImporter.prepare(data: data)) { error in
+            XCTAssertEqual(error as? CollectionImportError, .invalidPublication(reason))
+            XCTAssertTrue(error.localizedDescription.contains("niespójne identyfikatory"))
+        }
+    }
+
+    func testRejectsPeriodicalSupplementStoredInsideEANField() {
+        for invalidEAN in ["9770033248007+05", "977003324800705"] {
+            let data = canonicalData(
+                publications: """
+                [
+                  {
+                    "id": "pub-supplement-inside-ean",
+                    "type": "periodical",
+                    "title": "Miesięcznik testowy",
+                    "authors": [],
+                    "identifiers": {
+                      "ean": "\(invalidEAN)",
+                      "barcode": "9770033248007+05"
+                    },
+                    "createdAt": "2026-08-11T10:00:00Z",
+                    "updatedAt": "2026-08-11T10:00:00Z"
+                  }
+                ]
+                """,
+                ownedItems: """
+                [
+                  {
+                    "id": "copy-supplement-inside-ean",
+                    "publicationId": "pub-supplement-inside-ean",
+                    "locationPath": [],
+                    "status": "owned",
+                    "addedAt": "2026-08-11T10:00:00Z",
+                    "updatedAt": "2026-08-11T10:00:00Z"
+                  }
+                ]
+                """
+            )
+
+            XCTAssertThrowsError(try CollectionImporter.prepare(data: data)) { error in
+                guard case .invalidPublication(let reason) = error as? CollectionImportError else {
+                    return XCTFail("Oczekiwano invalidPublication, otrzymano \(error)")
+                }
+                XCTAssertTrue(reason.contains("Pole ean może zawierać wyłącznie 13 cyfr"))
+            }
+        }
+    }
+
+    func testRejectsMalformedSuffixStoredInsideEANField() {
+        for invalidEAN in ["9770033248007+123", "9770033248007+abc"] {
+            let data = canonicalData(
+                publications: """
+                [
+                  {
+                    "id": "pub-malformed-ean-suffix",
+                    "type": "periodical",
+                    "title": "Miesięcznik testowy",
+                    "authors": [],
+                    "identifiers": { "ean": "\(invalidEAN)" },
+                    "createdAt": "2026-08-11T10:00:00Z",
+                    "updatedAt": "2026-08-11T10:00:00Z"
+                  }
+                ]
+                """,
+                ownedItems: """
+                [
+                  {
+                    "id": "copy-malformed-ean-suffix",
+                    "publicationId": "pub-malformed-ean-suffix",
+                    "locationPath": [],
+                    "status": "owned",
+                    "addedAt": "2026-08-11T10:00:00Z",
+                    "updatedAt": "2026-08-11T10:00:00Z"
+                  }
+                ]
+                """
+            )
+
+            XCTAssertThrowsError(try CollectionImporter.prepare(data: data)) { error in
+                guard case .invalidPublication(let reason) = error as? CollectionImportError else {
+                    return XCTFail("Oczekiwano invalidPublication, otrzymano \(error)")
+                }
+                XCTAssertTrue(reason.contains("Pole ean może zawierać wyłącznie 13 cyfr"))
+            }
+        }
+    }
+
+    func testKeepsLegacyRawBarcodeThatIsNotAValidPeriodicalComposite() throws {
+        let data = canonicalData(
+            publications: """
+            [
+              {
+                "id": "pub-legacy-periodical-barcode",
+                "type": "periodical",
+                "title": "Archiwalny miesięcznik",
+                "authors": [],
+                "identifiers": {
+                  "ean": "9770033248007",
+                  "barcode": "kod dostawcy / zapis historyczny"
+                },
+                "createdAt": "2026-08-11T10:00:00Z",
+                "updatedAt": "2026-08-11T10:00:00Z"
+              }
+            ]
+            """,
+            ownedItems: """
+            [
+              {
+                "id": "copy-legacy-periodical-barcode",
+                "publicationId": "pub-legacy-periodical-barcode",
+                "locationPath": [],
+                "status": "owned",
+                "addedAt": "2026-08-11T10:00:00Z",
+                "updatedAt": "2026-08-11T10:00:00Z"
+              }
+            ]
+            """
+        )
+        let container = try makeContainer()
+        let context = container.mainContext
+
+        _ = try CollectionImporter.importCollection(data: data, into: context)
+
+        let publication = try XCTUnwrap(context.fetch(FetchDescriptor<Publication>()).first)
+        XCTAssertEqual(publication.ean, "9770033248007")
+        XCTAssertEqual(publication.barcode, "kod dostawcy / zapis historyczny")
+    }
+
+    func testDropsUnsafeLegacyCoverWithoutRejectingCanonicalPayload() throws {
+        let invalidURLs = [
+            "http://covers.openlibrary.org/b/id/123-M.jpg",
+            "file:///private/var/mobile/cover.jpg",
+            "https://user:secret@covers.openlibrary.org/b/id/123-M.jpg"
+        ]
+
+        for coverURL in invalidURLs {
+            let data = canonicalData(
+                publications: """
+                [
+                  {
+                    "id": "pub-cover",
+                    "type": "book",
+                    "title": "Okładka testowa",
+                    "authors": [],
+                    "identifiers": {},
+                    "metadata": {
+                      "source": "import",
+                      "coverUrl": "\(coverURL)",
+                      "coverSource": "legacy"
+                    },
+                    "createdAt": "2026-08-11T10:00:00Z",
+                    "updatedAt": "2026-08-11T10:00:00Z"
+                  }
+                ]
+                """,
+                ownedItems: """
+                [
+                  {
+                    "id": "copy-cover",
+                    "publicationId": "pub-cover",
+                    "locationPath": [],
+                    "status": "owned",
+                    "addedAt": "2026-08-11T10:00:00Z",
+                    "updatedAt": "2026-08-11T10:00:00Z"
+                  }
+                ]
+                """
+            )
+
+            let container = try makeContainer()
+            let context = container.mainContext
+            let report = try CollectionImporter.importCollection(data: data, into: context)
+            let publication = try XCTUnwrap(context.fetch(FetchDescriptor<Publication>()).first)
+
+            XCTAssertEqual(report.addedPublications, 1, coverURL)
+            XCTAssertEqual(publication.title, "Okładka testowa", coverURL)
+            XCTAssertEqual(publication.coverURLString, "", coverURL)
+            XCTAssertEqual(publication.coverSource, "", coverURL)
+        }
+    }
+
+    func testDropsLegacyCoverFieldsWithUnexpectedJSONTypes() throws {
+        let data = canonicalData(
+            publications: """
+            [
+              {
+                "id": "pub-cover-types",
+                "type": "book",
+                "title": "Stary eksport",
+                "authors": [],
+                "identifiers": {},
+                "metadata": {
+                  "source": "import",
+                  "coverUrl": { "legacy": "local-cache-key" },
+                  "coverSource": ["legacy"]
+                },
+                "createdAt": "2026-08-11T10:00:00Z",
+                "updatedAt": "2026-08-11T10:00:00Z"
+              }
+            ]
+            """,
+            ownedItems: """
+            [
+              {
+                "id": "copy-cover-types",
+                "publicationId": "pub-cover-types",
+                "locationPath": [],
+                "status": "owned",
+                "addedAt": "2026-08-11T10:00:00Z",
+                "updatedAt": "2026-08-11T10:00:00Z"
+              }
+            ]
+            """
+        )
+        let container = try makeContainer()
+        let context = container.mainContext
+
+        let report = try CollectionImporter.importCollection(data: data, into: context)
+        let publication = try XCTUnwrap(context.fetch(FetchDescriptor<Publication>()).first)
+
+        XCTAssertEqual(report.addedPublications, 1)
+        XCTAssertEqual(publication.title, "Stary eksport")
+        XCTAssertEqual(publication.coverURLString, "")
+        XCTAssertEqual(publication.coverSource, "")
     }
 
     func testRejectsNonexistentOverflowingAndInvalidOffsetDates() {
@@ -582,6 +850,9 @@ final class CollectionImporterTests: XCTestCase {
         XCTAssertEqual(publication.externalID, "publication-with-text-id")
         XCTAssertEqual(item.externalID, "owned-item-with-text-id")
         XCTAssertEqual(publication.authors, ["Sacher-Masoch, Leopold von", "Nowak, Anna"])
+        XCTAssertEqual(publication.coverURLString, "https://cdn.example.org/covers/fixture-001.jpg")
+        XCTAssertEqual(publication.coverSource, "fixture")
+        XCTAssertNil(publication.resolvedCoverURL)
         XCTAssertEqual(item.locationPath, ["Gabinet", "Półka bez ISBN"])
 
         let export = CollectionExporter.makeExport(
@@ -596,6 +867,8 @@ final class CollectionImporterTests: XCTestCase {
         XCTAssertEqual(export.collection.name, "Wspólny test round-trip")
         XCTAssertEqual(export.publications.map(\.id), ["publication-with-text-id"])
         XCTAssertEqual(export.publications.first?.authors, ["Sacher-Masoch, Leopold von", "Nowak, Anna"])
+        XCTAssertEqual(export.publications.first?.metadata?.coverUrl, "https://cdn.example.org/covers/fixture-001.jpg")
+        XCTAssertEqual(export.publications.first?.metadata?.coverSource, "fixture")
         XCTAssertEqual(export.ownedItems.map(\.id), ["owned-item-with-text-id"])
         XCTAssertEqual(export.ownedItems.first?.publicationId, "publication-with-text-id")
         XCTAssertEqual(export.ownedItems.first?.locationPath, ["Gabinet", "Półka bez ISBN"])

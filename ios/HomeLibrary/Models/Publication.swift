@@ -22,6 +22,11 @@ enum PublicationType: String, Codable, CaseIterable, Identifiable {
     }
 }
 
+enum PublicationCoverAsset: Equatable, Sendable {
+    case local(Data)
+    case remote(URL)
+}
+
 @Model
 final class Publication {
     var id: UUID
@@ -45,6 +50,13 @@ final class Publication {
     /// Data numeru w postaci czytelnej dla człowieka, np. "2026-08".
     var issueDate: String
     var metadataSource: String
+    /// Przenośna referencja do okładki. Sam plik obrazu pozostaje w lokalnym cache.
+    var coverURLString: String = ""
+    /// Pochodzenie okładki niezależne od źródła pozostałych metadanych.
+    var coverSource: String = ""
+    /// Sanitized local JPEG. External storage keeps the SwiftData row small and
+    /// lets the persistent store manage the binary asset transactionally.
+    @Attribute(.externalStorage) var coverImageData: Data? = nil
     var createdAt: Date
     var updatedAt: Date
 
@@ -66,6 +78,9 @@ final class Publication {
         issueVolume: String = "",
         issueDate: String = "",
         metadataSource: String = "manual",
+        coverURLString: String = "",
+        coverSource: String = "",
+        coverImageData: Data? = nil,
         createdAt: Date = .now,
         updatedAt: Date = .now
     ) {
@@ -87,6 +102,9 @@ final class Publication {
         self.issueVolume = issueVolume
         self.issueDate = issueDate
         self.metadataSource = metadataSource
+        self.coverURLString = coverURLString
+        self.coverSource = coverSource
+        self.coverImageData = coverImageData.flatMap { $0.isEmpty ? nil : $0 }
         self.createdAt = createdAt
         self.updatedAt = updatedAt
     }
@@ -106,5 +124,57 @@ final class Publication {
     var exportID: String {
         let clean = externalID.trimmingCharacters(in: .whitespacesAndNewlines)
         return clean.isEmpty ? id.uuidString : clean
+    }
+
+    var resolvedCoverImageData: Data? {
+        coverImageData.flatMap { $0.isEmpty ? nil : $0 }
+    }
+
+    /// Local data always wins for on-device presentation. A remote reference
+    /// remains available as a fallback after the local image is removed.
+    var resolvedCoverAsset: PublicationCoverAsset? {
+        if let data = resolvedCoverImageData {
+            return .local(data)
+        }
+        if let url = resolvedCoverURL {
+            return .remote(url)
+        }
+        return nil
+    }
+
+    var hasResolvedCover: Bool {
+        resolvedCoverAsset != nil
+    }
+
+    /// Uses an explicitly accepted URL first. Older records with only an ISBN
+    /// still gain a deterministic Open Library cover without mutating the model.
+    var resolvedCoverURL: URL? {
+        if let explicitURL = RemoteCoverURLPolicy.validatedReference(coverURLString),
+           RemoteCoverURLPolicy.canLoadAutomatically(explicitURL) {
+            return explicitURL
+        }
+        return OpenLibraryCoverURL.url(forISBN: isbn13)
+    }
+
+    var resolvedCoverSource: String? {
+        if let explicitURL = RemoteCoverURLPolicy.validatedReference(coverURLString),
+           RemoteCoverURLPolicy.canLoadAutomatically(explicitURL) {
+            let clean = coverSource.trimmingCharacters(in: .whitespacesAndNewlines)
+            return clean.isEmpty ? nil : clean
+        }
+        return resolvedCoverURL == nil ? nil : BookMetadataSource.openLibrary.rawValue
+    }
+
+    var exportCoverURL: URL? {
+        RemoteCoverURLPolicy.validatedReference(coverURLString)
+            ?? OpenLibraryCoverURL.url(forISBN: isbn13)
+    }
+
+    var exportCoverSource: String? {
+        if RemoteCoverURLPolicy.validatedReference(coverURLString) != nil {
+            let clean = coverSource.trimmingCharacters(in: .whitespacesAndNewlines)
+            return clean.isEmpty ? nil : clean
+        }
+        return exportCoverURL == nil ? nil : BookMetadataSource.openLibrary.rawValue
     }
 }

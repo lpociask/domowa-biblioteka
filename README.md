@@ -3,15 +3,19 @@
 Pierwszy vertical slice prywatnego katalogu książek i prasy:
 
 - natywna aplikacja iOS do skanowania, ręcznego dodawania oraz lokalnego przechowywania kolekcji;
-- automatyczne uzupełnianie książek po ISBN: najpierw z Biblioteki Narodowej, a w razie braku wyniku z Open Library;
-- rozpoznawanie prasowego EAN‑13 z prefiksem `977`, automatyczne ustawienie typu prasa i wyprowadzenie bazowego ISSN;
+- automatyczne uzupełnianie książek po ISBN w kaskadzie Biblioteka Narodowa → Open Library → Library of Congress;
+- trwały cache metadanych i bezpieczne okładki Open Library działające także po utracie połączenia;
+- rozpoznawanie prasowego EAN‑13 z prefiksem `977`, automatyczne ustawienie typu prasa, wyprowadzenie bazowego ISSN, zachowanie dodatków EAN‑2/EAN‑5 oraz lookup Biblioteka Narodowa → ISSN Portal;
+- lokalne zdjęcia okładek książek i prasy: pomniejszane, ponownie kodowane bez metadanych aparatu, zapisywane local-first i wyświetlane przed okładką zdalną;
+- lokalny, wymagający potwierdzenia OCR okładki prasy z propozycjami tytułu, numeru, tomu i daty oraz analiza serii, luk i duplikatów;
 - statyczny katalog WWW działający na GitHub Pages i przechowujący dane lokalnie w przeglądarce;
 - wspólny, wersjonowany format importu i eksportu JSON;
+- prywatny, dobrowolny panel pilota 100–200 z czasami katalogowania, jakością metadanych i weryfikacją odtworzenia bazy;
 - świadome rozdzielenie publikacji od posiadanego egzemplarza.
 
 **Działające demo:** [lpociask.github.io/domowa-biblioteka](https://lpociask.github.io/domowa-biblioteka/)
 
-> GitHub Pages hostuje wyłącznie statyczne HTML, CSS i JavaScript. Nie jest bazą danych ani backendem synchronizacji. Bieżący MVP przenosi kolekcję pomiędzy iOS i webem ręcznie, za pomocą pliku JSON; oba klienty obsługują import i eksport. Nie ma konta, automatycznej synchronizacji ani wysyłania kolekcji do chmury przez aplikację. Import iOS dodaje brakujące rekordy, ale nie nadpisuje już istniejących lokalnych danych. Do repozytorium trafiają tylko dane demonstracyjne.
+> GitHub Pages hostuje wyłącznie statyczne HTML, CSS i JavaScript. Nie jest bazą danych ani backendem synchronizacji. Bieżący MVP przenosi kolekcję pomiędzy iOS i webem ręcznie, za pomocą pliku JSON; oba klienty obsługują import i eksport. Nie ma konta, automatycznej synchronizacji ani wysyłania kolekcji do chmury przez aplikację. Import iOS dodaje brakujące rekordy, ale nie nadpisuje już istniejących lokalnych danych. Collection JSON przenosi zdalne referencje okładek, ale nie binarne lokalne zdjęcia — interfejs ostrzega o tym przy eksporcie. Do repozytorium trafiają tylko dane demonstracyjne.
 
 ## Struktura
 
@@ -65,16 +69,19 @@ Publiczny kontrakt maszynowy: [collection.schema.json](https://lpociask.github.i
 - Nie commituj prawdziwego eksportu kolekcji.
 - Lokalizacje domu są prywatne domyślnie.
 - Plik JSON może zawierać lokalizacje i notatki. Przenoś go świadomie, np. przez aplikację Pliki lub AirDrop, i samodzielnie wybierz miejsce przechowywania kopii.
-- Lookup metadanych wysyła do Biblioteki Narodowej, a w razie potrzeby do Open Library, wyłącznie znormalizowany ISBN. Nie wysyła lokalizacji, notatek ani całej kolekcji.
-- Open Library jest używane wyłącznie jako wywoływany przez użytkownika fallback o małym wolumenie, z cache HTTP; nie służy do masowego wzbogacania kolekcji.
+- Lookup książek wysyła wyłącznie znormalizowany ISBN do kolejnych źródeł kaskady: Biblioteki Narodowej, Open Library i — w razie potrzeby — Library of Congress. Lookup prasy analogicznie wysyła ISSN do Biblioteki Narodowej, a następnie ISSN Portal. Nie wysyła lokalizacji, notatek, zdjęcia okładki ani całej kolekcji.
+- Open Library jest używane wyłącznie jako wywoływany przez użytkownika fallback o małym wolumenie; jawny cache metadanych i okładek ogranicza ponowne zapytania, ale nie służy do masowego wzbogacania kolekcji.
+- Google Books nie jest obecnie częścią kaskady, ponieważ publiczne API wymaga klucza lub OAuth; aplikacja nie zawiera współdzielonego sekretu.
+- Zdjęcie okładki jest przetwarzane lokalnie przed zapisem: aplikacja ogranicza rozmiar, ponownie koduje obraz i usuwa metadane aparatu. Może też zasilić lokalny OCR prasy, którego propozycje użytkownik zatwierdza przed wpisaniem do formularza.
+- Bieżący collection JSON nie zawiera binarnych lokalnych zdjęć. Jest transferem danych katalogowych i zdalnych referencji okładek, a nie pełną kopią multimediów.
 - GitHub Pages może być publicznie dostępny nawet wtedy, gdy kod znajduje się w prywatnym repozytorium — zależy to od planu i ustawień GitHub.
 - Przyszła synchronizacja będzie wymagała uwierzytelnionego API i bazy danych z izolacją kolekcji użytkowników.
 
 ## Następne etapy
 
-1. Pilot na 100–200 realnych książkach i numerach prasy.
-2. Utwardzenie metadanych: e‑ISBN, jawny cache z polityką odświeżania i obsługa niejednoznacznych wyników.
-3. Odczyt dodatków EAN‑2/EAN‑5, OCR okładki i półautomatyczne rozpoznawanie konkretnych numerów prasy.
+1. Wykonanie pilota na 100–200 realnych książkach i numerach prasy przy pomocy wbudowanego, lokalnego panelu pomiarowego.
+2. Dalsze utwardzenie metadanych: e‑ISBN, pochodzenie pojedynczych pól i obsługa niejednoznacznych wyników.
+3. Walidacja na fizycznych próbkach dodatków EAN‑2/EAN‑5, OCR oraz analizy brakujących i zdublowanych numerów.
 4. Dopiero po pilocie: decyzja o prywatnym backendzie synchronizacji i koncie użytkownika.
 
 Szczegółowa kolejność znajduje się w [`docs/ROADMAP.md`](docs/ROADMAP.md).

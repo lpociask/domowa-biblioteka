@@ -93,7 +93,8 @@
           "type": ["string", "null"]
         },
         "barcode": {
-          "type": ["string", "null"]
+          "type": ["string", "null"],
+          "$comment": "Surowy kod lub postać kanoniczna EAN-977 z dodatkiem EAN-2/EAN-5: 13 cyfr, znak + i 2 albo 5 cyfr, np. 9770033248007+05."
         }
       },
       "additionalProperties": true
@@ -157,6 +158,17 @@
         },
         "metadata": {
           "type": ["object", "null"],
+          "properties": {
+            "source": {
+              "type": ["string", "null"]
+            },
+            "coverUrl": {
+              "$comment": "Pole legacy jest tolerancyjne przy odczycie v1. Writer zapisuje wyłącznie bezpieczny URL HTTPS do 2048 bajtów; reader pomija nieważną referencję i coverSource bez odrzucania kolekcji."
+            },
+            "coverSource": {
+              "$comment": "Reader pomija tę wartość, gdy coverUrl jest nieważny; writer zapisuje string albo null."
+            }
+          },
           "additionalProperties": true
         },
         "createdAt": {

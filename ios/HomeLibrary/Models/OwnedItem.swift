@@ -35,7 +35,7 @@ final class OwnedItem {
     init(
         id: UUID = UUID(),
         externalID: String? = nil,
-        publication: Publication,
+        publication: Publication?,
         locationPathText: String,
         status: OwnedItemStatus = .owned,
         notes: String = "",
@@ -59,15 +59,12 @@ final class OwnedItem {
     }
 
     var locationPath: [String] {
-        locationPathText
-            .split(separator: "/")
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
+        LocationPath(locationPathText).segments
     }
 
     var locationDisplayName: String {
-        let components = locationPath
-        return components.isEmpty ? "Bez lokalizacji" : components.joined(separator: " › ")
+        let location = LocationPath(locationPathText)
+        return location.isEmpty ? "Bez lokalizacji" : location.display
     }
 
     var exportID: String {

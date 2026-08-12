@@ -53,6 +53,8 @@
         "pageCount": 304,
         "source": "Dane demonstracyjne",
         "sourceUrl": null,
+        "coverUrl": "https://covers.openlibrary.org/b/isbn/9780441478125-M.jpg?default=false",
+        "coverSource": "openlibrary",
         "coverColor": "#3f5f83"
       },
       "createdAt": "2026-08-07T08:40:00.000Z",
