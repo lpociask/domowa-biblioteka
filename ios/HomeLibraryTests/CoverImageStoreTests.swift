@@ -102,7 +102,8 @@ final class CoverImageStoreTests: XCTestCase {
             URL(string: "https://openlibrary.org/b/id/1-M.jpg")!,
             URL(string: "https://covers.openlibrary.org.evil.example/b/id/1-M.jpg")!,
             URL(string: "https://user@covers.openlibrary.org/b/id/1-M.jpg")!,
-            URL(string: "https://covers.openlibrary.org:444/b/id/1-M.jpg")!
+            URL(string: "https://covers.openlibrary.org:444/b/id/1-M.jpg")!,
+            URL(string: "https://covers.openlibrary.org/b/id/1-M.jpg#fragment")!
         ]
 
         for url in rejected {
@@ -193,6 +194,119 @@ final class CoverImageStoreTests: XCTestCase {
 
         XCTAssertEqual(followedRequest?.url, target)
         XCTAssertFalse(delegate.rejectedRedirect)
+    }
+
+    func testRedirectDelegateAllowsOnlyOpenLibraryArchiveCoverChain() throws {
+        let source = Self.coverURL("archive-chain-source")
+        let targets = [
+            URL(
+                string: "https://archive.org/download/m_covers_0010/m_covers_0010_57.zip/0010579085-M.jpg"
+            )!,
+            URL(
+                string: "https://ia800505.us.archive.org/view_archive.php?archive=/25/items/m_covers_0010/m_covers_0010_57.zip&file=0010579085-M.jpg"
+            )!,
+            URL(
+                string: "https://archive.org/download/l_covers_0010/l_covers_0010_57.zip/0010579085-L.jpg"
+            )!,
+            URL(
+                string: "https://ia903209.us.archive.org/view_archive.php?archive=/23/items/s_covers_0010/s_covers_0010_57.zip&file=0010579085-S.jpg"
+            )!
+        ]
+        let delegate = CoverImageRedirectDelegate()
+        let task = URLSession.shared.dataTask(with: source)
+
+        for target in targets {
+            let response = HTTPURLResponse(
+                url: source,
+                statusCode: 302,
+                httpVersion: "HTTP/1.1",
+                headerFields: ["Location": target.absoluteString]
+            )!
+            var followedRequest: URLRequest?
+
+            delegate.urlSession(
+                .shared,
+                task: task,
+                willPerformHTTPRedirection: response,
+                newRequest: URLRequest(url: target)
+            ) { followedRequest = $0 }
+
+            XCTAssertEqual(followedRequest?.url, target)
+            XCTAssertFalse(delegate.rejectedRedirect)
+        }
+    }
+
+    func testRedirectDelegateRejectsArchiveLookalikesAndUnrelatedPaths() throws {
+        let source = Self.coverURL("archive-rejection-source")
+        let rejectedTargets = [
+            "http://archive.org/download/m_covers_0010/m_covers_0010_57.zip/0010579085-M.jpg",
+            "https://user@archive.org/download/m_covers_0010/m_covers_0010_57.zip/0010579085-M.jpg",
+            "https://archive.org:444/download/m_covers_0010/m_covers_0010_57.zip/0010579085-M.jpg",
+            "https://archive.org/download/unrelated/private.jpg",
+            "https://archive.org/download/s_covers_0010/m_covers_0010_57.zip/0010579085-S.jpg",
+            "https://archive.org.evil.example/download/m_covers_0010/m_covers_0010_57.zip/0010579085-M.jpg",
+            "https://ia800505.us.archive.org/download/private.jpg",
+            "https://ia800505.us.archive.org/view_archive.php?archive=/25/items/other.zip&file=0010579085-M.jpg",
+            "https://ia800505.us.archive.org/view_archive.php?archive=/25/items/m_covers_0010/m_covers_0010_57.zip&file=../../private.jpg",
+            "https://ia800505.us.archive.org/view_archive.php?archive=/25/items/m_covers_0010/m_covers_0010_57.zip&file=0010579085-L.jpg",
+            "https://ia800505.us.archive.org/view_archive.php?archive=/25/items/m_covers_0010/m_covers_0010_57.zip&archive=/25/items/m_covers_0010/m_covers_0010_57.zip&file=0010579085-M.jpg",
+            "https://ia800505.us.archive.org.evil.example/view_archive.php?archive=/25/items/m_covers_0010/m_covers_0010_57.zip&file=0010579085-M.jpg"
+        ].compactMap(URL.init(string:))
+
+        for target in rejectedTargets {
+            let response = HTTPURLResponse(
+                url: source,
+                statusCode: 302,
+                httpVersion: "HTTP/1.1",
+                headerFields: ["Location": target.absoluteString]
+            )!
+            let delegate = CoverImageRedirectDelegate()
+            let task = URLSession.shared.dataTask(with: source)
+            var followedRequest: URLRequest?
+
+            delegate.urlSession(
+                .shared,
+                task: task,
+                willPerformHTTPRedirection: response,
+                newRequest: URLRequest(url: target)
+            ) { followedRequest = $0 }
+
+            XCTAssertNil(followedRequest, target.absoluteString)
+            XCTAssertTrue(delegate.rejectedRedirect, target.absoluteString)
+        }
+    }
+
+    func testArchiveRedirectPayloadUsesOriginalCoverCacheKey() async throws {
+        let image = try Self.makeImageData(
+            width: 40,
+            height: 60,
+            typeIdentifier: UTType.jpeg.identifier,
+            seed: 31
+        )
+        let archiveURL = URL(
+            string: "https://ia800505.us.archive.org/view_archive.php?archive=/25/items/m_covers_0010/m_covers_0010_57.zip&file=0010579085-M.jpg"
+        )!
+        let transport = StubCoverImageTransport(responses: [
+            .http(
+                status: 200,
+                mimeType: "image/jpeg",
+                data: image,
+                finalURL: archiveURL
+            )
+        ])
+        let store = try CoverImageStore(
+            transport: transport,
+            cacheDirectory: makeTemporaryDirectory()
+        )
+        let sourceURL = Self.coverURL("archive-cache-key")
+
+        let loaded = try await store.image(for: sourceURL)
+        let cached = try await store.cachedImage(for: sourceURL)
+        let calls = await transport.callCount
+
+        XCTAssertNotNil(loaded)
+        XCTAssertEqual(cached, loaded)
+        XCTAssertEqual(calls, 1)
     }
 
     func testProductionTransportStopsUnknownLengthBodyAtFiveMegabytes() async throws {

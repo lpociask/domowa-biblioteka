@@ -7,6 +7,8 @@ struct PublicationCoverView: View {
     enum Mode: Hashable {
         /// Wiersze kolekcji nigdy nie uruchamiają pobierania z sieci.
         case thumbnail
+        /// Elastyczna okładka kafelka kolekcji. Uzupełnia trwały cache na miss.
+        case collection
         /// Podgląd podczas rozpoznawania publikacji może pobrać obraz.
         case lookup
         /// Duża okładka na karcie publikacji może pobrać obraz.
@@ -17,7 +19,7 @@ struct PublicationCoverView: View {
         }
 
         fileprivate var showsSource: Bool {
-            self != .thumbnail
+            self == .lookup || self == .detail
         }
     }
 
@@ -47,6 +49,8 @@ struct PublicationCoverView: View {
         Group {
             if mode == .thumbnail {
                 thumbnail
+            } else if mode == .collection {
+                collectionCover
             } else {
                 fullCover
             }
@@ -66,6 +70,24 @@ struct PublicationCoverView: View {
         } else {
             Color.clear
                 .frame(width: 0, height: 0)
+                .accessibilityHidden(true)
+        }
+    }
+
+    @ViewBuilder
+    private var collectionCover: some View {
+        if case .loaded(let image) = phase {
+            coverCanvas {
+                coverImage(image)
+            }
+            .accessibilityLabel("Okładka publikacji \(displayTitle)")
+        } else {
+            // Kafelek kolekcji ma własny editorial fallback. Przezroczysta
+            // warstwa zachowuje geometrię i pozwala mu pozostać widocznym,
+            // dopóki prawdziwa okładka nie trafi do cache.
+            Color.clear
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .aspectRatio(3 / 4.15, contentMode: .fit)
                 .accessibilityHidden(true)
         }
     }
@@ -149,8 +171,16 @@ struct PublicationCoverView: View {
     private func coverCanvas<Content: View>(
         @ViewBuilder content: () -> Content
     ) -> some View {
-        content()
-            .frame(width: coverWidth, height: coverHeight)
+        Group {
+            if mode == .collection {
+                content()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .aspectRatio(3 / 4.15, contentMode: .fit)
+            } else {
+                content()
+                    .frame(width: coverWidth, height: coverHeight)
+            }
+        }
             .background(LibraryPalette.warmPaper)
             .clipShape(RoundedRectangle(cornerRadius: 3))
             .overlay {
@@ -171,13 +201,15 @@ struct PublicationCoverView: View {
             .interpolation(.high)
             .antialiased(true)
             .scaledToFit()
-            .frame(width: coverWidth, height: coverHeight)
+            .modifier(CoverImageFrame(mode: mode, width: coverWidth, height: coverHeight))
     }
 
     private var coverWidth: CGFloat {
         switch mode {
         case .thumbnail:
             return horizontalSizeClass == .regular ? 72 : 58
+        case .collection:
+            return 0
         case .lookup:
             if dynamicTypeSize.isAccessibilitySize {
                 return 132
@@ -284,5 +316,21 @@ private extension PublicationCoverView {
         let url: URL?
         let mode: Mode
         let retryGeneration: Int
+    }
+
+    struct CoverImageFrame: ViewModifier {
+        let mode: Mode
+        let width: CGFloat
+        let height: CGFloat
+
+        func body(content: Content) -> some View {
+            if mode == .collection {
+                content
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .aspectRatio(3 / 4.15, contentMode: .fit)
+            } else {
+                content.frame(width: width, height: height)
+            }
+        }
     }
 }

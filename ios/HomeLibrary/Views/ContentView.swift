@@ -4,6 +4,27 @@ import UIKit
 import UniformTypeIdentifiers
 
 struct ContentView: View {
+    fileprivate enum CollectionDisplayMode: String, CaseIterable, Identifiable {
+        case covers
+        case list
+
+        var id: Self { self }
+
+        var label: String {
+            switch self {
+            case .list: "Lista"
+            case .covers: "Okładki"
+            }
+        }
+
+        var symbolName: String {
+            switch self {
+            case .list: "list.bullet"
+            case .covers: "square.grid.2x2"
+            }
+        }
+    }
+
     private enum AddItemRoute: Hashable, Identifiable {
         case scanner, manual
         var id: Self { self }
@@ -42,6 +63,7 @@ struct ContentView: View {
     @Query(sort: \OwnedItem.addedAt, order: .reverse) private var items: [OwnedItem]
     @AppStorage("collectionID") private var collectionID = ""
     @AppStorage("collectionName") private var collectionName = "Moja biblioteka"
+    @AppStorage("collectionDisplayMode") private var collectionDisplayModeRawValue = CollectionDisplayMode.list.rawValue
     @State private var searchText = ""
     @State private var navigationPath: [PersistentIdentifier] = []
     @State private var showingPeriodicalOverview = false
@@ -106,8 +128,38 @@ struct ContentView: View {
         items.contains { $0.publication?.publicationType == .periodical }
     }
 
-    private var shouldUseGrid: Bool {
-        horizontalSizeClass == .regular && !dynamicTypeSize.isAccessibilitySize
+    private var collectionDisplayMode: CollectionDisplayMode {
+        CollectionDisplayMode(rawValue: collectionDisplayModeRawValue) ?? .list
+    }
+
+    private var collectionDisplayModeBinding: Binding<CollectionDisplayMode> {
+        Binding(
+            get: { collectionDisplayMode },
+            set: { mode in
+                collectionDisplayModeRawValue = mode.rawValue
+                UIAccessibility.post(
+                    notification: .announcement,
+                    argument: "Widok kolekcji: \(mode.label.lowercased())"
+                )
+            }
+        )
+    }
+
+    private var coverGridColumns: [GridItem] {
+        if dynamicTypeSize.isAccessibilitySize {
+            return [GridItem(.flexible(), spacing: 0, alignment: .top)]
+        }
+
+        return [
+            GridItem(
+                .adaptive(
+                    minimum: horizontalSizeClass == .regular ? 190 : 142,
+                    maximum: 235
+                ),
+                spacing: horizontalSizeClass == .regular ? LibrarySpacing.medium : LibrarySpacing.small,
+                alignment: .top
+            )
+        ]
     }
 
     var body: some View {
@@ -406,8 +458,11 @@ struct ContentView: View {
                 if filteredItems.isEmpty {
                     noSearchResults
                 } else {
-                    EditorialSectionHeader(title: searchText.nilIfBlank == nil ? "Publikacje" : "Wyniki wyszukiwania",
-                                           value: paddedCount(filteredItems.count))
+                    CollectionResultsHeader(
+                        title: searchText.nilIfBlank == nil ? "Publikacje" : "Wyniki wyszukiwania",
+                        value: paddedCount(filteredItems.count),
+                        selection: collectionDisplayModeBinding
+                    )
                     collectionRows
                 }
             }
@@ -420,19 +475,38 @@ struct ContentView: View {
     }
 
     @ViewBuilder private var collectionRows: some View {
-        if shouldUseGrid {
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 330, maximum: 470), spacing: LibrarySpacing.large)],
-                      alignment: .leading, spacing: 0) { publicationRows }
-                .overlay(alignment: .bottom) { Rectangle().fill(LibraryPalette.rule).frame(height: 1) }
-        } else {
+        switch collectionDisplayMode {
+        case .list:
             LazyVStack(spacing: 0) { publicationRows }
                 .overlay(alignment: .bottom) { Rectangle().fill(LibraryPalette.rule).frame(height: 1) }
+
+        case .covers:
+            LazyVGrid(
+                columns: coverGridColumns,
+                alignment: .leading,
+                spacing: horizontalSizeClass == .regular ? LibrarySpacing.large : LibrarySpacing.medium
+            ) {
+                publicationCoverCards
+            }
         }
     }
 
     @ViewBuilder private var publicationRows: some View {
         ForEach(Array(filteredItems.enumerated()), id: \.element.persistentModelID) { index, item in
             PublicationRow(
+                index: index + 1,
+                item: item,
+                openAction: { openPublication(item) },
+                editAction: { presentItemEditor(id: item.id, mode: .full) },
+                moveAction: { presentItemEditor(id: item.id, mode: .moveOnly) },
+                deleteAction: { requestDeletion(of: item) }
+            )
+        }
+    }
+
+    @ViewBuilder private var publicationCoverCards: some View {
+        ForEach(Array(filteredItems.enumerated()), id: \.element.persistentModelID) { index, item in
+            CollectionCoverCard(
                 index: index + 1,
                 item: item,
                 openAction: { openPublication(item) },
@@ -863,6 +937,351 @@ private struct EditorialSearchField: View {
                 .stroke(LibraryPalette.controlBorder, lineWidth: 1)
         }
         .clipShape(RoundedRectangle(cornerRadius: LibraryRadius.small))
+    }
+}
+
+private struct CollectionResultsHeader: View {
+    let title: String
+    let value: String
+    @Binding var selection: ContentView.CollectionDisplayMode
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+
+    var body: some View {
+        Group {
+            if horizontalSizeClass == .compact || dynamicTypeSize.isAccessibilitySize {
+                stackedLayout
+            } else {
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: LibrarySpacing.small) {
+                        EditorialSectionHeader(title: title, value: value)
+                            .frame(minWidth: 120, maxWidth: .infinity)
+                        CollectionDisplayModePicker(selection: $selection)
+                    }
+                    stackedLayout
+                }
+            }
+        }
+        .accessibilityElement(children: .contain)
+    }
+
+    private var stackedLayout: some View {
+        VStack(alignment: .leading, spacing: LibrarySpacing.small) {
+            EditorialSectionHeader(title: title, value: value)
+            CollectionDisplayModePicker(selection: $selection)
+                .frame(
+                    maxWidth: horizontalSizeClass == .compact || dynamicTypeSize.isAccessibilitySize
+                        ? .infinity
+                        : nil,
+                    alignment: .leading
+                )
+        }
+    }
+}
+
+private struct CollectionDisplayModePicker: View {
+    @Binding var selection: ContentView.CollectionDisplayMode
+
+    var body: some View {
+        HStack(spacing: 0) {
+            ForEach(ContentView.CollectionDisplayMode.allCases) { mode in
+                Button {
+                    selection = mode
+                } label: {
+                    Label(mode.label.uppercased(), systemImage: mode.symbolName)
+                        .font(.caption2.weight(.bold))
+                        .tracking(0.7)
+                        .lineLimit(1)
+                        .foregroundStyle(selection == mode ? Color.white : LibraryPalette.mutedInk)
+                        .padding(.horizontal, LibrarySpacing.small)
+                        .frame(maxWidth: .infinity, minHeight: 44)
+                        .background(selection == mode ? LibraryPalette.ink : Color.clear)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(mode.label)
+                .accessibilityValue(selection == mode ? "Wybrano" : "")
+                .accessibilityAddTraits(selection == mode ? .isSelected : [])
+                .accessibilityIdentifier("collection.displayMode.\(mode.rawValue)")
+            }
+        }
+        .frame(minWidth: 168)
+        .fixedSize(horizontal: false, vertical: true)
+        .background(LibraryPalette.paper.opacity(0.78))
+        .clipShape(RoundedRectangle(cornerRadius: LibraryRadius.small))
+        .overlay {
+            RoundedRectangle(cornerRadius: LibraryRadius.small)
+                .stroke(LibraryPalette.controlBorder, lineWidth: 1)
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Sposób wyświetlania kolekcji")
+    }
+}
+
+private struct CollectionCoverCard: View {
+    let index: Int
+    let item: OwnedItem
+    let openAction: () -> Void
+    let editAction: () -> Void
+    let moveAction: () -> Void
+    let deleteAction: () -> Void
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Button(action: openAction) {
+                VStack(alignment: .leading, spacing: 0) {
+                    CollectionCoverArtwork(publication: item.publication)
+                        .padding(LibrarySpacing.small)
+                        .padding(.bottom, 0)
+                        .allowsHitTesting(false)
+                        .accessibilityHidden(true)
+
+                    VStack(alignment: .leading, spacing: 7) {
+                        HStack(spacing: 7) {
+                            Text(String(format: "%02d", index))
+                                .font(.caption2.monospacedDigit().weight(.bold))
+                            Rectangle()
+                                .fill(LibraryPalette.orange)
+                                .frame(width: 18, height: 2)
+                                .accessibilityHidden(true)
+                            Text(publicationTypeLabel.uppercased())
+                                .font(.caption2.weight(.bold))
+                                .tracking(1.1)
+                                .lineLimit(1)
+                        }
+                        .foregroundStyle(LibraryPalette.orangeText)
+
+                        Text(item.publication?.title.nilIfBlank ?? "Publikacja bez tytułu")
+                            .font(.system(.headline, design: .serif, weight: .bold))
+                            .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 3)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .frame(
+                                minHeight: dynamicTypeSize.isAccessibilitySize ? nil : 44,
+                                alignment: .topLeading
+                            )
+
+                        if let detail = publicationDetail {
+                            Text(detail)
+                                .font(.caption)
+                                .foregroundStyle(LibraryPalette.mutedInk)
+                                .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 2)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                    .padding(LibrarySpacing.small)
+                    .frame(maxWidth: .infinity, alignment: .topLeading)
+                }
+                .foregroundStyle(LibraryPalette.ink)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(accessibilityLabel)
+            .accessibilityHint("Otwiera szczegóły publikacji")
+            .accessibilityIdentifier("collection.coverCard.\(item.id.uuidString)")
+
+            HStack(alignment: .center, spacing: LibrarySpacing.xSmall) {
+                Image(systemName: "mappin")
+                    .font(.caption2.weight(.bold))
+                    .foregroundStyle(LibraryPalette.orangeText)
+                    .accessibilityHidden(true)
+                Text(item.locationDisplayName)
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(LibraryPalette.mutedInk)
+                    .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 2)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 0)
+                itemMenu
+            }
+            .padding(.leading, LibrarySpacing.small)
+            .overlay(alignment: .top) {
+                Rectangle().fill(LibraryPalette.rule).frame(height: 1)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+        .background(LibraryPalette.paper.opacity(0.78))
+        .clipShape(RoundedRectangle(cornerRadius: LibraryRadius.small))
+        .overlay {
+            RoundedRectangle(cornerRadius: LibraryRadius.small)
+                .stroke(LibraryPalette.controlBorder, lineWidth: 1)
+        }
+        .accessibilityElement(children: .contain)
+    }
+
+    private var itemMenu: some View {
+        Menu {
+            Button(action: editAction) {
+                Label("Edytuj", systemImage: "pencil")
+            }
+            .accessibilityIdentifier("collection.itemEdit.\(item.id.uuidString)")
+
+            Button(action: moveAction) {
+                Label("Przenieś", systemImage: "arrow.left.arrow.right")
+            }
+            .accessibilityIdentifier("collection.itemMove.\(item.id.uuidString)")
+
+            Divider()
+
+            Button(role: .destructive, action: deleteAction) {
+                Label("Usuń z kolekcji", systemImage: "trash")
+            }
+        } label: {
+            Image(systemName: "ellipsis")
+                .font(.body.weight(.bold))
+                .foregroundStyle(LibraryPalette.ink)
+                .frame(width: 44, height: 44)
+                .contentShape(Rectangle())
+        }
+        .accessibilityLabel("Opcje publikacji \(item.publication?.title.nilIfBlank ?? "bez tytułu")")
+        .accessibilityIdentifier("collection.itemOptions.\(item.id.uuidString)")
+    }
+
+    private var publicationTypeLabel: String {
+        item.publication?.publicationType.label ?? "Publikacja"
+    }
+
+    private var publicationDetail: String? {
+        guard let publication = item.publication else { return nil }
+        if publication.publicationType == .periodical {
+            let issue = publication.issueNumber.isEmpty ? nil : "nr \(publication.issueNumber)"
+            return [issue, publication.issueDate.nilIfBlank]
+                .compactMap { $0 }
+                .joined(separator: " · ")
+                .nilIfBlank
+        }
+        return publication.authorsText.nilIfBlank
+    }
+
+    private var accessibilityLabel: String {
+        [
+            item.publication?.title.nilIfBlank ?? "Publikacja bez tytułu",
+            publicationDetail,
+            publicationTypeLabel,
+            item.locationDisplayName
+        ]
+        .compactMap { $0 }
+        .joined(separator: ", ")
+    }
+}
+
+private struct CollectionCoverArtwork: View {
+    let publication: Publication?
+
+    @ViewBuilder
+    var body: some View {
+        ZStack {
+            CollectionEditorialFallbackCover(publication: publication)
+
+            if let publication,
+               let coverURL = publication.resolvedCoverURL {
+                PublicationCoverView(
+                    url: coverURL,
+                    title: publication.title,
+                    source: publication.resolvedCoverSource,
+                    mode: .collection
+                )
+                .frame(maxWidth: .infinity)
+            }
+        }
+    }
+}
+
+private struct CollectionEditorialFallbackCover: View {
+    let publication: Publication?
+
+    var body: some View {
+        ZStack(alignment: .leading) {
+            fallbackColor
+
+            Rectangle()
+                .fill(Color.black.opacity(0.1))
+                .frame(width: 8)
+            Rectangle()
+                .fill(Color.white.opacity(0.08))
+                .frame(width: 1)
+                .padding(.leading, 9)
+
+            VStack(alignment: .leading, spacing: LibrarySpacing.xSmall) {
+                Text(typeLabel.uppercased())
+                    .font(.caption2.weight(.bold))
+                    .tracking(1.4)
+
+                Spacer(minLength: LibrarySpacing.small)
+
+                Text(monogram)
+                    .font(.system(size: 45, weight: .semibold, design: .serif))
+                    .fontWidth(.condensed)
+                    .tracking(-2.5)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.62)
+
+                Rectangle()
+                    .fill(Color.white.opacity(0.76))
+                    .frame(height: 1)
+
+                Spacer(minLength: LibrarySpacing.small)
+
+                Text(dateLabel.uppercased())
+                    .font(.caption2.weight(.bold))
+                    .tracking(1.1)
+                    .lineLimit(1)
+            }
+            .foregroundStyle(Color.white)
+            .padding(.leading, LibrarySpacing.medium)
+            .padding(.trailing, LibrarySpacing.small)
+            .padding(.vertical, LibrarySpacing.medium)
+        }
+        .aspectRatio(3 / 4.15, contentMode: .fit)
+        .frame(maxWidth: .infinity)
+        .clipShape(RoundedRectangle(cornerRadius: 4))
+        .overlay {
+            RoundedRectangle(cornerRadius: 4)
+                .stroke(Color.black.opacity(0.22), lineWidth: 1)
+        }
+        .shadow(color: LibraryPalette.ink.opacity(0.14), radius: 6, x: -1, y: 4)
+        .accessibilityHidden(true)
+    }
+
+    private var title: String {
+        publication?.title.nilIfBlank ?? "Publikacja bez tytułu"
+    }
+
+    private var typeLabel: String {
+        publication?.publicationType.label ?? "Publikacja"
+    }
+
+    private var dateLabel: String {
+        guard let publication else { return "bez daty" }
+        if publication.publicationType == .periodical {
+            return publication.issueDate.nilIfBlank
+                ?? publication.issueNumber.nilIfBlank.map { "nr \($0)" }
+                ?? "bez daty"
+        }
+        return publication.publicationYear.map(String.init) ?? "bez daty"
+    }
+
+    private var monogram: String {
+        let initials = title
+            .split(whereSeparator: { $0.isWhitespace || $0.isPunctuation })
+            .prefix(2)
+            .compactMap(\.first)
+        let value = String(initials).uppercased()
+        return value.isEmpty ? "?" : value
+    }
+
+    private var fallbackColor: Color {
+        let palette = [
+            Color(hex: "A9470D"),
+            Color(hex: "24463F"),
+            Color(hex: "3D4650"),
+            Color(hex: "7B3F32"),
+            Color(hex: "9A651F")
+        ]
+        let index = title.unicodeScalars.reduce(0) { partial, scalar in
+            (partial + Int(scalar.value)) % palette.count
+        }
+        return palette[index]
     }
 }
 

@@ -17,6 +17,11 @@ final class OpenLibraryMetadataServiceTests: XCTestCase {
         XCTAssertEqual(value.publisher, "Puffin")
         XCTAssertEqual(value.publicationYear, 1988)
         XCTAssertEqual(value.language, "en")
+        XCTAssertEqual(
+            value.coverURL?.absoluteString,
+            "https://covers.openlibrary.org/b/id/15152634-M.jpg"
+        )
+        XCTAssertEqual(value.coverSource, .openLibrary)
 
         let receivedRequest = await transport.receivedRequest
         let request = try XCTUnwrap(receivedRequest)
@@ -85,6 +90,55 @@ final class OpenLibraryMetadataServiceTests: XCTestCase {
 
         XCTAssertEqual(metadata?.title, "Error-correction coding for digital communications")
         XCTAssertEqual(metadata?.publicationYear, 1981)
+    }
+
+    func testUpgradesOfficialHTTPCoverLinkOnlyForTrustedOpenLibraryHost() async throws {
+        let transport = StubOpenLibraryTransport(json: """
+        {
+          "records": {
+            "/books/OL4256224M": {
+              "isbns": ["9780306406157"],
+              "data": {
+                "title": "Exact edition",
+                "cover": {
+                  "medium": "http://covers.openlibrary.org/b/id/123-M.jpg"
+                }
+              }
+            }
+          }
+        }
+        """)
+
+        let metadata = try await OpenLibraryMetadataService(transport: transport)
+            .lookup(isbn: "9780306406157")
+
+        XCTAssertEqual(
+            metadata?.coverURL?.absoluteString,
+            "https://covers.openlibrary.org/b/id/123-M.jpg"
+        )
+        XCTAssertEqual(metadata?.coverSource, .openLibrary)
+    }
+
+    func testRejectsHTTPOrCredentialedCoverLinkFromUntrustedHost() async throws {
+        let transport = StubOpenLibraryTransport(json: """
+        {
+          "records": {
+            "/books/OL4256224M": {
+              "isbns": ["9780306406157"],
+              "data": {
+                "title": "Exact edition",
+                "cover": {"medium": "http://example.com/cover.jpg"}
+              }
+            }
+          }
+        }
+        """)
+
+        let metadata = try await OpenLibraryMetadataService(transport: transport)
+            .lookup(isbn: "9780306406157")
+
+        XCTAssertNil(metadata?.coverURL)
+        XCTAssertNil(metadata?.coverSource)
     }
 
     func testUnrelatedISBNRecordReturnsNoMatch() async throws {
@@ -210,7 +264,12 @@ private extension OpenLibraryMetadataServiceTests {
               {"name": "Roald Dahl"}
             ],
             "publishers": [{"name": "Puffin"}],
-            "publish_date": "October 1, 1988"
+            "publish_date": "October 1, 1988",
+            "cover": {
+              "small": "https://covers.openlibrary.org/b/id/15152634-S.jpg",
+              "medium": "https://covers.openlibrary.org/b/id/15152634-M.jpg",
+              "large": "https://covers.openlibrary.org/b/id/15152634-L.jpg"
+            }
           },
           "details": {
             "details": {

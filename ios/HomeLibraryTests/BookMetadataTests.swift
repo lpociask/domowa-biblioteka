@@ -32,6 +32,99 @@ final class BookMetadataTests: XCTestCase {
         XCTAssertEqual(fallbackCalls, 0)
     }
 
+    func testOptInEnrichesBNResultWithExactOpenLibraryCover() async throws {
+        let trace = LookupTraceCollector()
+        let nationalLibrary = StubBookMetadataProvider(result: .success(Self.bnMetadata))
+        let openLibrary = StubBookMetadataProvider(result: .success(Self.exactCoverMetadata))
+        let provider = CascadingBookMetadataProvider(
+            nationalLibrary: nationalLibrary,
+            openLibrary: openLibrary,
+            nationalLibraryCoverEnrichment: openLibrary,
+            observer: trace.observer
+        )
+
+        let lookupResult = try await provider.lookup(isbn: "9780306406157")
+        let result = try XCTUnwrap(lookupResult)
+
+        XCTAssertEqual(result.source, .nationalLibrary)
+        XCTAssertEqual(result.title, Self.bnMetadata.title)
+        XCTAssertEqual(result.subtitle, Self.bnMetadata.subtitle)
+        XCTAssertEqual(result.authors, Self.bnMetadata.authors)
+        XCTAssertEqual(result.publisher, Self.bnMetadata.publisher)
+        XCTAssertEqual(result.publicationYear, Self.bnMetadata.publicationYear)
+        XCTAssertEqual(result.language, Self.bnMetadata.language)
+        XCTAssertEqual(
+            result.coverURL?.absoluteString,
+            "https://covers.openlibrary.org/b/id/12345-M.jpg?default=false"
+        )
+        XCTAssertEqual(result.coverSource, .openLibrary)
+        let nationalLibraryCalls = await nationalLibrary.callCount
+        let openLibraryCalls = await openLibrary.callCount
+        let metrics = await trace.values
+        XCTAssertEqual(nationalLibraryCalls, 1)
+        XCTAssertEqual(openLibraryCalls, 1)
+        XCTAssertEqual(metrics, [
+            PilotLookupMetric(source: .nationalLibrary, outcome: .found),
+            PilotLookupMetric(source: .openLibrary, outcome: .found)
+        ])
+    }
+
+    func testOptInKeepsBNResultAndISBNCoverWhenOpenLibraryHasNoMatch() async throws {
+        let trace = LookupTraceCollector()
+        let nationalLibrary = StubBookMetadataProvider(result: .success(Self.bnMetadata))
+        let openLibrary = StubBookMetadataProvider(result: .success(nil))
+        let provider = CascadingBookMetadataProvider(
+            nationalLibrary: nationalLibrary,
+            openLibrary: openLibrary,
+            nationalLibraryCoverEnrichment: openLibrary,
+            observer: trace.observer
+        )
+
+        let result = try await provider.lookup(isbn: "9780306406157")
+
+        XCTAssertEqual(
+            result,
+            Self.bnMetadata.addingFallbackCover(forISBN: "9780306406157")
+        )
+        let nationalLibraryCalls = await nationalLibrary.callCount
+        let openLibraryCalls = await openLibrary.callCount
+        let metrics = await trace.values
+        XCTAssertEqual(nationalLibraryCalls, 1)
+        XCTAssertEqual(openLibraryCalls, 1)
+        XCTAssertEqual(metrics, [
+            PilotLookupMetric(source: .nationalLibrary, outcome: .found),
+            PilotLookupMetric(source: .openLibrary, outcome: .notFound)
+        ])
+    }
+
+    func testOptInKeepsBNResultAndISBNCoverWhenOpenLibraryFails() async throws {
+        let trace = LookupTraceCollector()
+        let nationalLibrary = StubBookMetadataProvider(result: .success(Self.bnMetadata))
+        let openLibrary = StubBookMetadataProvider(result: .failure(.unavailable))
+        let provider = CascadingBookMetadataProvider(
+            nationalLibrary: nationalLibrary,
+            openLibrary: openLibrary,
+            nationalLibraryCoverEnrichment: openLibrary,
+            observer: trace.observer
+        )
+
+        let result = try await provider.lookup(isbn: "9780306406157")
+
+        XCTAssertEqual(
+            result,
+            Self.bnMetadata.addingFallbackCover(forISBN: "9780306406157")
+        )
+        let nationalLibraryCalls = await nationalLibrary.callCount
+        let openLibraryCalls = await openLibrary.callCount
+        let metrics = await trace.values
+        XCTAssertEqual(nationalLibraryCalls, 1)
+        XCTAssertEqual(openLibraryCalls, 1)
+        XCTAssertEqual(metrics, [
+            PilotLookupMetric(source: .nationalLibrary, outcome: .found),
+            PilotLookupMetric(source: .openLibrary, outcome: .failed)
+        ])
+    }
+
     func testCascadeUsesOpenLibraryWhenBNHasNoMatch() async throws {
         let primary = StubBookMetadataProvider(result: .success(nil))
         let fallback = StubBookMetadataProvider(result: .success(Self.openLibraryMetadata))
@@ -381,6 +474,18 @@ private extension BookMetadataTests {
         publisher: nil,
         publicationYear: 2025,
         language: "en"
+    )
+
+    static let exactCoverMetadata = BookMetadata(
+        source: .openLibrary,
+        title: "Exact edition",
+        subtitle: nil,
+        authors: [],
+        publisher: nil,
+        publicationYear: nil,
+        language: nil,
+        coverURL: OpenLibraryCoverURL.url(forCoverID: 12_345),
+        coverSource: .openLibrary
     )
 
     static let emptyMetadata = BookMetadata(

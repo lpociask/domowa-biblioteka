@@ -238,7 +238,11 @@ fileprivate extension BookMetadataCache {
     }
 
     struct DiskEntry: Codable {
-        static let currentSchemaVersion = 1
+        // Version 2 invalidates results produced before the strict Open
+        // Library Search fallback was added. In particular, an ISBN cached as
+        // `notFound` by the older provider must be retried immediately after
+        // the app update rather than hiding the expanded catalog for 24 hours.
+        static let currentSchemaVersion = 2
 
         enum Outcome: String, Codable {
             case metadata

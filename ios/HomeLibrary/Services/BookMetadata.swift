@@ -74,6 +74,26 @@ struct BookMetadata: Codable, Equatable, Sendable {
             coverSource: .openLibrary
         )
     }
+
+    func addingOpenLibraryCover(_ candidateURL: URL?) -> BookMetadata {
+        guard coverURL == nil,
+              let candidateURL,
+              RemoteCoverURLPolicy.canLoadAutomatically(candidateURL) else {
+            return self
+        }
+
+        return BookMetadata(
+            source: source,
+            title: title,
+            subtitle: subtitle,
+            authors: authors,
+            publisher: publisher,
+            publicationYear: publicationYear,
+            language: language,
+            coverURL: candidateURL,
+            coverSource: .openLibrary
+        )
+    }
 }
 
 enum OpenLibraryCoverSize: String, Sendable {
@@ -99,6 +119,24 @@ enum OpenLibraryCoverURL {
         }
 
         components.path = "/b/isbn/\(isbn13)-\(size.rawValue).jpg"
+        components.queryItems = [URLQueryItem(name: "default", value: "false")]
+        return components.url
+    }
+
+    /// Cover-ID URLs avoid the stricter rate limit applied to ISBN mappings
+    /// and point at the exact image selected by Open Library's edition data.
+    static func url(
+        forCoverID coverID: Int,
+        size: OpenLibraryCoverSize = .medium
+    ) -> URL? {
+        guard coverID > 0,
+              var components = URLComponents(
+                  string: "https://covers.openlibrary.org"
+              ) else {
+            return nil
+        }
+
+        components.path = "/b/id/\(coverID)-\(size.rawValue).jpg"
         components.queryItems = [URLQueryItem(name: "default", value: "false")]
         return components.url
     }
@@ -158,6 +196,7 @@ struct CascadingBookMetadataProvider: BookMetadataProviding {
     }
 
     private let stages: [Stage]
+    private let nationalLibraryCoverEnrichment: Stage?
     private let observer: BookMetadataLookupObserver
 
     init(
@@ -170,6 +209,7 @@ struct CascadingBookMetadataProvider: BookMetadataProviding {
         // Custom provider lists are never labelled by array position. The
         // production initializer below supplies explicit BN/OL provenance.
         stages = providers.map { Stage(pilotSource: nil, provider: $0) }
+        nationalLibraryCoverEnrichment = nil
         self.observer = observer
     }
 
@@ -179,19 +219,27 @@ struct CascadingBookMetadataProvider: BookMetadataProviding {
     init(
         nationalLibrary: any BookMetadataProviding,
         openLibrary: any BookMetadataProviding,
+        nationalLibraryCoverEnrichment: (any BookMetadataProviding)? = nil,
         observer: BookMetadataLookupObserver = .disabled
     ) {
         stages = [
             Stage(pilotSource: .nationalLibrary, provider: nationalLibrary),
             Stage(pilotSource: .openLibrary, provider: openLibrary)
         ]
+        self.nationalLibraryCoverEnrichment = nationalLibraryCoverEnrichment.map {
+            Stage(pilotSource: .openLibrary, provider: $0)
+        }
         self.observer = observer
     }
 
     private init(productionObserver observer: BookMetadataLookupObserver) {
         self.init(
             nationalLibrary: BNMetadataService(),
-            openLibrary: OpenLibraryMetadataService(),
+            openLibrary: FallbackOpenLibraryMetadataProvider(
+                primary: OpenLibraryMetadataService(),
+                fallback: OpenLibrarySearchMetadataService()
+            ),
+            nationalLibraryCoverEnrichment: OpenLibrarySearchMetadataService(),
             observer: observer
         )
     }
@@ -222,7 +270,17 @@ struct CascadingBookMetadataProvider: BookMetadataProviding {
                     if let source = stage.pilotSource {
                         await observer.record(source: source, outcome: .found)
                     }
-                    return metadata.addingFallbackCover(forISBN: isbn13)
+
+                    let result: BookMetadata
+                    if stage.pilotSource == .nationalLibrary {
+                        result = try await enrichingNationalLibraryCover(
+                            in: metadata,
+                            isbn: isbn13
+                        )
+                    } else {
+                        result = metadata
+                    }
+                    return result.addingFallbackCover(forISBN: isbn13)
                 }
                 if let source = stage.pilotSource {
                     await observer.record(source: source, outcome: .notFound)
@@ -256,5 +314,58 @@ struct CascadingBookMetadataProvider: BookMetadataProviding {
             throw lastError
         }
         return nil
+    }
+
+    /// Production-only best-effort enrichment. BN remains the authoritative
+    /// bibliographic source; Open Library contributes solely a trusted cover.
+    /// A catalog outage must not discard an otherwise useful BN result.
+    private func enrichingNationalLibraryCover(
+        in metadata: BookMetadata,
+        isbn: String
+    ) async throws -> BookMetadata {
+        guard metadata.coverURL == nil,
+              let stage = nationalLibraryCoverEnrichment else {
+            return metadata
+        }
+
+        try Task.checkCancellation()
+
+        do {
+            let coverMetadata = try await stage.provider.lookup(isbn: isbn)
+            try Task.checkCancellation()
+
+            guard let coverMetadata, coverMetadata.hasUsefulData else {
+                if let source = stage.pilotSource {
+                    await observer.record(source: source, outcome: .notFound)
+                }
+                return metadata
+            }
+
+            if let source = stage.pilotSource {
+                await observer.record(source: source, outcome: .found)
+            }
+            return metadata.addingOpenLibraryCover(coverMetadata.coverURL)
+        } catch is CancellationError {
+            if let source = stage.pilotSource {
+                await observer.record(source: source, outcome: .cancelled)
+            }
+            throw CancellationError()
+        } catch let error as URLError where error.code == .cancelled {
+            if let source = stage.pilotSource {
+                await observer.record(source: source, outcome: .cancelled)
+            }
+            throw CancellationError()
+        } catch {
+            if Task.isCancelled {
+                if let source = stage.pilotSource {
+                    await observer.record(source: source, outcome: .cancelled)
+                }
+                throw CancellationError()
+            }
+            if let source = stage.pilotSource {
+                await observer.record(source: source, outcome: .failed)
+            }
+            return metadata
+        }
     }
 }

@@ -19,7 +19,7 @@ struct URLSessionCoverImageTransport: CoverImageTransport {
         guard let requestURL = request.url else {
             throw CoverImageStoreError.disallowedURL
         }
-        _ = try CoverImageRemoteURLPolicy.canonicalURL(requestURL)
+        _ = try CoverImageRemoteURLPolicy.canonicalSourceURL(requestURL)
 
         let redirectDelegate = CoverImageRedirectDelegate()
         let bytes: URLSession.AsyncBytes
@@ -45,7 +45,7 @@ struct URLSessionCoverImageTransport: CoverImageTransport {
             throw CoverImageStoreError.invalidResponse
         }
         do {
-            _ = try CoverImageRemoteURLPolicy.canonicalURL(finalURL)
+            try CoverImageRemoteURLPolicy.validateResponseURL(finalURL)
         } catch {
             bytes.task.cancel()
             throw error
@@ -109,27 +109,136 @@ enum CoverImageStoreError: Error, Equatable {
 }
 
 private enum CoverImageRemoteURLPolicy {
-    static let allowedHost = "covers.openlibrary.org"
+    private static let sourceHost = "covers.openlibrary.org"
+    private static let archiveDownloadHost = "archive.org"
+    private static let archiveImageHostPattern = try! NSRegularExpression(
+        pattern: #"\Aia[0-9]{6}\.us\.archive\.org\z"#
+    )
+    private static let archiveDownloadPathPattern = try! NSRegularExpression(
+        pattern: #"\A/download/([sml])_covers_[0-9]{4}/\1_covers_[0-9]{4}_[0-9]{2}\.zip/[0-9]{10}-([SML])\.jpg\z"#
+    )
+    private static let archiveBundlePattern = try! NSRegularExpression(
+        pattern: #"\A/[0-9]+/items/([sml])_covers_[0-9]{4}/\1_covers_[0-9]{4}_[0-9]{2}\.zip\z"#
+    )
+    private static let archiveFilePattern = try! NSRegularExpression(
+        pattern: #"\A[0-9]{10}-([SML])\.jpg\z"#
+    )
 
-    static func canonicalURL(_ url: URL) throws -> URL {
+    /// Only the documented Open Library Covers endpoint is accepted as a
+    /// caller-provided source. Redirect targets are validated separately, so a
+    /// caller can never use the image cache as a generic archive.org client.
+    static func canonicalSourceURL(_ url: URL) throws -> URL {
         guard var components = URLComponents(url: url, resolvingAgainstBaseURL: false),
               components.scheme?.lowercased() == "https",
-              components.host?.lowercased() == allowedHost,
+              components.host?.lowercased() == sourceHost,
               components.user == nil,
               components.password == nil,
-              components.port == nil || components.port == 443 else {
+              components.port == nil || components.port == 443,
+              components.fragment == nil else {
             throw CoverImageStoreError.disallowedURL
         }
         components.scheme = "https"
-        components.host = allowedHost
+        components.host = sourceHost
         // The default HTTPS port is semantically identical to an omitted port.
         // Removing it keeps cache keys and in-flight request identities stable.
         components.port = nil
-        components.fragment = nil
         guard let canonicalURL = components.url else {
             throw CoverImageStoreError.disallowedURL
         }
         return canonicalURL
+    }
+
+    /// Open Library stores cover files in Internet Archive. The public cover
+    /// endpoint currently follows this narrow HTTPS chain:
+    /// covers.openlibrary.org -> archive.org/download/{s,m,l}_covers_* ->
+    /// iaNNNNNN.us.archive.org/view_archive.php.
+    ///
+    /// Every other host, port, path and query shape remains rejected. The
+    /// downloaded body is still bounded, MIME-checked, decoded, downsampled and
+    /// stripped of metadata before it can enter the cache.
+    static func validateResponseURL(_ url: URL) throws {
+        guard isAllowedResponseURL(url) else {
+            throw CoverImageStoreError.disallowedURL
+        }
+    }
+
+    static func isAllowedRedirectURL(_ url: URL) -> Bool {
+        isAllowedResponseURL(url)
+    }
+
+    private static func isAllowedResponseURL(_ url: URL) -> Bool {
+        guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              components.scheme?.lowercased() == "https",
+              let host = components.host?.lowercased(),
+              components.user == nil,
+              components.password == nil,
+              components.port == nil || components.port == 443,
+              components.fragment == nil else {
+            return false
+        }
+
+        if host == sourceHost {
+            return true
+        }
+
+        if host == archiveDownloadHost {
+            guard components.query == nil,
+                  let bundleSize = capture(
+                    archiveDownloadPathPattern,
+                    group: 1,
+                    value: components.path
+                  ),
+                  let fileSize = capture(
+                    archiveDownloadPathPattern,
+                    group: 2,
+                    value: components.path
+                  ) else {
+                return false
+            }
+            return bundleSize.uppercased() == fileSize
+        }
+
+        guard matches(archiveImageHostPattern, value: host),
+              components.path == "/view_archive.php",
+              let queryItems = components.queryItems,
+              queryItems.count == 2 else {
+            return false
+        }
+
+        let groupedItems = Dictionary(grouping: queryItems, by: \.name)
+        guard Set(groupedItems.keys) == Set(["archive", "file"]),
+              groupedItems["archive"]?.count == 1,
+              groupedItems["file"]?.count == 1,
+              let archive = groupedItems["archive"]?.first?.value,
+              let file = groupedItems["file"]?.first?.value else {
+            return false
+        }
+
+        guard let bundleSize = capture(archiveBundlePattern, group: 1, value: archive),
+              let fileSize = capture(archiveFilePattern, group: 1, value: file) else {
+            return false
+        }
+        return bundleSize.uppercased() == fileSize
+    }
+
+    private static func matches(_ expression: NSRegularExpression, value: String) -> Bool {
+        let range = NSRange(value.startIndex..<value.endIndex, in: value)
+        return expression.firstMatch(in: value, range: range)?.range == range
+    }
+
+    private static func capture(
+        _ expression: NSRegularExpression,
+        group: Int,
+        value: String
+    ) -> String? {
+        let fullRange = NSRange(value.startIndex..<value.endIndex, in: value)
+        guard let match = expression.firstMatch(in: value, range: fullRange),
+              match.range == fullRange,
+              group < match.numberOfRanges,
+              let range = Range(match.range(at: group), in: value) else {
+            return nil
+        }
+        return String(value[range])
     }
 }
 
@@ -151,7 +260,7 @@ final class CoverImageRedirectDelegate: NSObject, URLSessionTaskDelegate, @unche
         completionHandler: @escaping (URLRequest?) -> Void
     ) {
         guard let targetURL = request.url,
-              (try? CoverImageRemoteURLPolicy.canonicalURL(targetURL)) != nil else {
+              CoverImageRemoteURLPolicy.isAllowedRedirectURL(targetURL) else {
             lock.lock()
             didRejectRedirect = true
             lock.unlock()
@@ -706,7 +815,7 @@ private extension CoverImageStore {
             throw CoverImageStoreError.invalidResponse
         }
         if let finalURL = httpResponse.url {
-            _ = try canonicalRemoteURL(finalURL)
+            try CoverImageRemoteURLPolicy.validateResponseURL(finalURL)
         } else {
             throw CoverImageStoreError.invalidResponse
         }
@@ -953,7 +1062,7 @@ private extension CoverImageStore {
     }
 
     static func canonicalRemoteURL(_ url: URL) throws -> URL {
-        try CoverImageRemoteURLPolicy.canonicalURL(url)
+        try CoverImageRemoteURLPolicy.canonicalSourceURL(url)
     }
 
     static func cacheKey(for url: URL) -> String {

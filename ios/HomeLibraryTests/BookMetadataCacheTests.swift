@@ -217,6 +217,30 @@ final class BookMetadataCacheTests: XCTestCase {
         XCTAssertTrue(try jsonFiles(in: directory).isEmpty)
     }
 
+    func testEntryFromPreviousCatalogGenerationIsRetriedImmediately() async throws {
+        let directory = try makeTemporaryDirectory()
+        let clock = TestClock(Self.referenceDate)
+        let cache = makeCache(directory: directory, clock: clock)
+        try await cache.store(nil, forISBN: Self.isbnA)
+
+        let file = try XCTUnwrap(jsonFiles(in: directory).first)
+        let encoded = try Data(contentsOf: file)
+        var payload = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: encoded) as? [String: Any]
+        )
+        payload["schemaVersion"] = 1
+        try JSONSerialization.data(withJSONObject: payload)
+            .write(to: file, options: .atomic)
+
+        let upstream = QueueBookMetadataProvider([.success(Self.firstMetadata)])
+        let result = try await CachedBookMetadataProvider(upstream: upstream, cache: cache)
+            .lookup(isbn: Self.isbnA)
+
+        let callCount = await upstream.callCount
+        XCTAssertEqual(result, Self.firstMetadata)
+        XCTAssertEqual(callCount, 1)
+    }
+
     func testOversizedDiskEntryIsRemovedBeforeReadingOrDecoding() async throws {
         let directory = try makeTemporaryDirectory()
         let cache = makeCache(directory: directory, clock: TestClock(Self.referenceDate))

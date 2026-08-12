@@ -84,6 +84,7 @@ struct AddItemFlow: View {
     @State private var metadataLookupState: MetadataLookupState = .idle
     @State private var metadataLookupTask: Task<Void, Never>?
     @State private var metadataLookupISBN: String?
+    @State private var metadataLookupISSN: String?
     @State private var showsMoreData = false
     @State private var savedTitle = ""
     @State private var savedLocation = ""
@@ -102,12 +103,14 @@ struct AddItemFlow: View {
     @State private var pilotDuplicateDecisionRecorded = false
 
     private let metadataProvider: any BookMetadataProviding
+    private let periodicalMetadataProvider: any PeriodicalMetadataProviding
     private let pilotMetricsStore: PilotMetricsStore?
     private let onMutation: (() -> Void)?
 
     init(
         startWithScanner: Bool,
         metadataProvider: (any BookMetadataProviding)? = nil,
+        periodicalMetadataProvider: (any PeriodicalMetadataProviding)? = nil,
         pilotMetricsStore: PilotMetricsStore? = nil,
         onMutation: (() -> Void)? = nil
     ) {
@@ -139,6 +142,8 @@ struct AddItemFlow: View {
         self.metadataProvider = metadataProvider ?? DefaultBookMetadataProvider(
             observer: lookupObserver
         )
+        self.periodicalMetadataProvider = periodicalMetadataProvider
+            ?? BNPeriodicalMetadataService(observer: lookupObserver)
         self.pilotMetricsStore = pilotMetricsStore
         self.onMutation = onMutation
     }
@@ -197,6 +202,9 @@ struct AddItemFlow: View {
             } else {
                 _ = pilotAttemptTracker.pause()
             }
+        }
+        .onChange(of: publicationType) { _, newType in
+            handlePublicationTypeChange(newType)
         }
         .onDisappear {
             metadataLookupTask?.cancel()
@@ -326,6 +334,9 @@ struct AddItemFlow: View {
             step = .form
             if let scannedISBN {
                 lookupMetadata(for: scannedISBN)
+            } else if publicationType == .periodical,
+                      let identifier = currentPeriodicalLookupIdentifier {
+                lookupPeriodicalMetadata(for: identifier)
             }
         }
         .navigationTitle("Skanuj kod")
@@ -435,17 +446,28 @@ struct AddItemFlow: View {
 
     private var periodicalCaptureStatus: some View {
         let titleIsEmpty = title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        let statusTitle = titleIsEmpty
-            ? (hasValidPeriodicalEAN ? "Rozpoznano prasę — wpisz tytuł" : "Wpisz tytuł prasy")
-            : "Rozpoznano prasę"
+        let statusTitle: String
         let statusMessage: String
-        if titleIsEmpty, hasValidPeriodicalEAN {
-            statusMessage = "Kod 977 wskazuje serię, ale katalogi ISBN nie uzupełniają tytułów prasy. Wpisz tytuł, a potem potwierdź numer lub datę z okładki."
+        if titleIsEmpty, metadataLookupState == .loading {
+            statusTitle = "Szukam tytułu prasy"
+            statusMessage = "Sprawdzam serię w Bibliotece Narodowej po numerze ISSN. Możesz w tym czasie uzupełnić formularz."
+        } else if titleIsEmpty, metadataLookupState == .noMatch {
+            statusTitle = "Serii nie ma w katalogu BN"
+            statusMessage = "Kod 977 jest poprawny, ale tytułu nie udało się uzupełnić. Wpisz go ręcznie, a potem potwierdź numer lub datę z okładki."
+        } else if titleIsEmpty, hasValidPeriodicalEAN {
+            statusTitle = "Rozpoznano prasę — wpisz tytuł"
+            statusMessage = "Kod 977 wskazuje serię. Jeśli BN jej nie rozpozna, wpisz tytuł ręcznie, a potem potwierdź numer lub datę z okładki."
         } else if titleIsEmpty {
+            statusTitle = "Wpisz tytuł prasy"
             statusMessage = "Wpisz tytuł, a potem potwierdź konkretny numer lub datę z okładki."
         } else if metadataSource == "collection" {
+            statusTitle = "Rozpoznano prasę"
             statusMessage = "Tytuł uzupełniono z Twojej kolekcji. Potwierdź konkretny numer lub datę z okładki przed zapisem."
+        } else if metadataSource == PeriodicalMetadataSource.nationalLibrary.rawValue {
+            statusTitle = "Rozpoznano prasę · BN"
+            statusMessage = "Tytuł serii uzupełniono z Biblioteki Narodowej. Potwierdź konkretny numer lub datę z okładki przed zapisem."
         } else {
+            statusTitle = "Rozpoznano prasę"
             statusMessage = "Tytuł jest gotowy. Potwierdź konkretny numer lub datę z okładki przed zapisem."
         }
 
@@ -472,7 +494,9 @@ struct AddItemFlow: View {
     private var isManualEntryIdle: Bool {
         metadataLookupState == .idle &&
             barcode.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
-            isbn13.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            isbn13.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+            issn.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+            ean.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     private func existingPublicationSection(_ match: ExistingPublicationMatch) -> some View {
@@ -660,10 +684,10 @@ struct AddItemFlow: View {
                         title: metadataLookupState == .loading ? "Pobieranie danych…" : "Pobierz dane z katalogów",
                         icon: "text.magnifyingglass"
                     ) {
-                        lookupMetadata(for: isbn13)
+                        requestMetadataLookup()
                     }
-                    .disabled(normalizedISBN(isbn13) == nil || metadataLookupState == .loading)
-                    .opacity(normalizedISBN(isbn13) == nil ? 0.5 : 1)
+                    .disabled(!canRequestMetadataLookup || metadataLookupState == .loading)
+                    .opacity(canRequestMetadataLookup ? 1 : 0.5)
 
                     if publicationType == .periodical {
                         EditorialLabeledTextField(
@@ -672,6 +696,9 @@ struct AddItemFlow: View {
                             prompt: "1234-5678",
                             keyboardType: .numbersAndPunctuation
                         )
+                        .onChange(of: issn) { _, _ in
+                            handlePeriodicalIdentifierChange()
+                        }
                     }
 
                     EditorialLabeledTextField(
@@ -680,6 +707,9 @@ struct AddItemFlow: View {
                         prompt: "13 cyfr",
                         keyboardType: .numberPad
                     )
+                    .onChange(of: ean) { _, _ in
+                        handlePeriodicalIdentifierChange()
+                    }
 
                     if !barcode.isEmpty {
                         HStack {
@@ -866,7 +896,9 @@ struct AddItemFlow: View {
             case .loading:
                 EditorialStatusBand(
                     title: "Szukam publikacji",
-                    message: "Sprawdzam Bibliotekę Narodową i Open Library. Formularz działa w tym czasie normalnie.",
+                    message: publicationType == .periodical
+                        ? "Sprawdzam Bibliotekę Narodową po ISSN. Formularz działa w tym czasie normalnie."
+                        : "Sprawdzam Bibliotekę Narodową i Open Library. Formularz działa w tym czasie normalnie.",
                     icon: "text.magnifyingglass"
                 )
                 ProgressView()
@@ -895,7 +927,9 @@ struct AddItemFlow: View {
             case .noMatch:
                 EditorialStatusBand(
                     title: "Brak rekordu w katalogach",
-                    message: "Połączenie działa, ale tego ISBN nie ma w BN ani Open Library. Uzupełnij opis ręcznie albo spróbuj jeszcze raz.",
+                    message: publicationType == .periodical
+                        ? "Połączenie działa, ale tego ISSN nie ma w katalogu BN. Uzupełnij tytuł serii ręcznie albo spróbuj jeszcze raz."
+                        : "Połączenie działa, ale tego ISBN nie ma w BN ani Open Library. Uzupełnij opis ręcznie albo spróbuj jeszcze raz.",
                     icon: "questionmark"
                 )
                 retryAndRescanActions
@@ -963,9 +997,9 @@ struct AddItemFlow: View {
         ViewThatFits(in: .horizontal) {
             HStack(spacing: 0) {
                 metadataAction(title: "Spróbuj ponownie", icon: "arrow.clockwise") {
-                    lookupMetadata(for: isbn13)
+                    requestMetadataLookup()
                 }
-                .disabled(normalizedISBN(isbn13) == nil)
+                .disabled(!canRequestMetadataLookup)
 
                 Rectangle()
                     .fill(LibraryPalette.rule)
@@ -976,9 +1010,9 @@ struct AddItemFlow: View {
 
             VStack(spacing: 0) {
                 metadataAction(title: "Spróbuj ponownie", icon: "arrow.clockwise") {
-                    lookupMetadata(for: isbn13)
+                    requestMetadataLookup()
                 }
-                .disabled(normalizedISBN(isbn13) == nil)
+                .disabled(!canRequestMetadataLookup)
 
                 metadataAction(title: "Skanuj ponownie", icon: "barcode.viewfinder", action: startRescan)
             }
@@ -1353,6 +1387,7 @@ struct AddItemFlow: View {
         metadataLookupTask?.cancel()
         metadataLookupTask = nil
         metadataLookupISBN = nil
+        metadataLookupISSN = nil
         metadataLookupState = .idle
 
         publicationType = .book
@@ -1458,10 +1493,12 @@ struct AddItemFlow: View {
         metadataLookupTask?.cancel()
         guard let requestedISBN = normalizedISBN(isbn) else {
             metadataLookupISBN = nil
+            metadataLookupISSN = nil
             metadataLookupState = .failed
             return
         }
         metadataLookupISBN = requestedISBN
+        metadataLookupISSN = nil
         metadataLookupState = .loading
         let snapshot = FormSnapshot(
             title: title,
@@ -1509,6 +1546,174 @@ struct AddItemFlow: View {
         }
     }
 
+    private var currentPeriodicalLookupIdentifier: String? {
+        [issn, ean, barcode].first { candidate in
+            PeriodicalIdentifierNormalizer.canonicalISSN(from: candidate) != nil
+        }
+    }
+
+    private var currentPeriodicalISSN: String? {
+        currentPeriodicalLookupIdentifier.flatMap {
+            PeriodicalIdentifierNormalizer.canonicalISSN(from: $0)
+        }
+    }
+
+    private var canRequestMetadataLookup: Bool {
+        switch publicationType {
+        case .book:
+            normalizedISBN(isbn13) != nil
+        case .periodical:
+            currentPeriodicalISSN != nil
+        }
+    }
+
+    private func requestMetadataLookup() {
+        switch publicationType {
+        case .book:
+            lookupMetadata(for: isbn13)
+        case .periodical:
+            guard let identifier = currentPeriodicalLookupIdentifier else {
+                metadataLookupState = .failed
+                return
+            }
+            lookupPeriodicalMetadata(for: identifier)
+        }
+    }
+
+    private func lookupPeriodicalMetadata(for identifier: String) {
+        metadataLookupTask?.cancel()
+        guard let requestedISSN = PeriodicalIdentifierNormalizer.canonicalISSN(
+            from: identifier
+        ) else {
+            metadataLookupISBN = nil
+            metadataLookupISSN = nil
+            metadataLookupState = .failed
+            return
+        }
+
+        metadataLookupISBN = nil
+        metadataLookupISSN = requestedISSN
+        metadataLookupState = .loading
+        let snapshot = FormSnapshot(
+            title: title,
+            subtitle: subtitle,
+            authors: authors,
+            publisher: publisher,
+            publicationYear: publicationYear,
+            language: language,
+            coverURLString: coverURLString,
+            coverSource: coverSource
+        )
+
+        metadataLookupTask = Task {
+            do {
+                let metadata = try await periodicalMetadataProvider.lookup(
+                    identifier: requestedISSN
+                )
+                try Task.checkCancellation()
+                guard PeriodicalMetadataLookupGate.canFinish(
+                    requestedISSN: requestedISSN,
+                    activeISSN: metadataLookupISSN,
+                    currentISSN: currentPeriodicalISSN,
+                    publicationType: publicationType
+                ) else {
+                    return
+                }
+                guard let metadata, metadata.hasUsefulData else {
+                    metadataLookupState = .noMatch
+                    return
+                }
+
+                let pilotValuesBeforeApply = currentPilotValues(
+                    for: Self.pilotMetadataFields
+                )
+                let didApplyMetadata = apply(
+                    periodicalMetadata: metadata,
+                    preservingChangesSince: snapshot
+                )
+                _ = pilotAttemptTracker.markRecognition()
+                capturePilotAutomaticChanges(
+                    in: Self.pilotMetadataFields,
+                    from: pilotValuesBeforeApply
+                )
+                if didApplyMetadata {
+                    metadataSource = metadata.source.rawValue
+                }
+                metadataLookupState = .enriched(.nationalLibrary)
+            } catch is CancellationError {
+                return
+            } catch {
+                guard !Task.isCancelled,
+                      PeriodicalMetadataLookupGate.canFinish(
+                          requestedISSN: requestedISSN,
+                          activeISSN: metadataLookupISSN,
+                          currentISSN: currentPeriodicalISSN,
+                          publicationType: publicationType
+                      ) else {
+                    return
+                }
+                metadataLookupState = .failed
+            }
+        }
+    }
+
+    @discardableResult
+    private func apply(
+        periodicalMetadata metadata: PeriodicalMetadata,
+        preservingChangesSince snapshot: FormSnapshot
+    ) -> Bool {
+        let mergeResult = PeriodicalMetadataFormMerge.merge(
+            metadata: metadata,
+            baseline: PeriodicalMetadataFormFields(
+                title: snapshot.title,
+                publisher: snapshot.publisher,
+                language: snapshot.language
+            ),
+            current: PeriodicalMetadataFormFields(
+                title: title,
+                publisher: publisher,
+                language: language
+            )
+        )
+        title = mergeResult.fields.title
+        publisher = mergeResult.fields.publisher
+        language = mergeResult.fields.language
+
+        var didApplyMetadata = mergeResult.didApplyMetadata
+        if issn.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+           issn != metadata.issn {
+            issn = metadata.issn
+            didApplyMetadata = true
+        }
+        return didApplyMetadata
+    }
+
+    private func handlePublicationTypeChange(_ newType: PublicationType) {
+        guard PeriodicalMetadataLookupGate.shouldResetLookup(
+            activeISBN: metadataLookupISBN,
+            activeISSN: metadataLookupISSN,
+            publicationType: newType
+        ) else {
+            return
+        }
+
+        metadataLookupTask?.cancel()
+        metadataLookupTask = nil
+        metadataLookupISBN = nil
+        metadataLookupISSN = nil
+        metadataLookupState = .idle
+
+        if metadataSource == BookMetadataSource.nationalLibrary.rawValue ||
+            metadataSource == BookMetadataSource.openLibrary.rawValue {
+            metadataSource = "manual"
+        }
+        if newType == .periodical,
+           coverSource == BookMetadataSource.openLibrary.rawValue {
+            coverURLString = ""
+            coverSource = ""
+        }
+    }
+
     private func handleISBNChange(_ value: String) {
         guard let lookupISBN = metadataLookupISBN,
               normalizedISBN(value) != lookupISBN else {
@@ -1518,6 +1723,7 @@ struct AddItemFlow: View {
         metadataLookupTask?.cancel()
         metadataLookupTask = nil
         metadataLookupISBN = nil
+        metadataLookupISSN = nil
         metadataLookupState = .idle
         if metadataSource == BookMetadataSource.nationalLibrary.rawValue ||
             metadataSource == BookMetadataSource.openLibrary.rawValue {
@@ -1526,6 +1732,21 @@ struct AddItemFlow: View {
         if coverSource == BookMetadataSource.openLibrary.rawValue {
             coverURLString = ""
             coverSource = ""
+        }
+    }
+
+    private func handlePeriodicalIdentifierChange() {
+        guard let lookupISSN = metadataLookupISSN,
+              currentPeriodicalISSN != lookupISSN else {
+            return
+        }
+
+        metadataLookupTask?.cancel()
+        metadataLookupTask = nil
+        metadataLookupISSN = nil
+        metadataLookupState = .idle
+        if metadataSource == PeriodicalMetadataSource.nationalLibrary.rawValue {
+            metadataSource = "manual"
         }
     }
 
