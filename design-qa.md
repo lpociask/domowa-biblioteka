@@ -1,81 +1,73 @@
-# Design QA — iOS editorial redesign
+# Design QA — WWW zgodne z aplikacją iOS
 
-## Comparison target
+## Materiał źródłowy
 
-- Source visual truth: `/Users/lpociask/Documents/magazyny/5x12/docs/screenshots/library-iphone.jpg`
-- Primary implementation capture: `/Users/lpociask/Documents/ChatGPT/katalogowanie ksiazej i prasy/docs/screenshots/ios-redesign-reference-viewport.png`
-- Additional implementation captures:
-  - `/Users/lpociask/Documents/ChatGPT/katalogowanie ksiazej i prasy/docs/screenshots/ios-redesign-compact-empty.png`
-  - `/Users/lpociask/Documents/ChatGPT/katalogowanie ksiazej i prasy/docs/screenshots/ios-redesign-compact-populated.png`
-  - `/Users/lpociask/Documents/ChatGPT/katalogowanie ksiazej i prasy/docs/screenshots/ios-redesign-ipad-populated.png`
-  - `/Users/lpociask/Documents/ChatGPT/katalogowanie ksiazej i prasy/docs/screenshots/ios-redesign-compact-ax5.png`
-- State: light appearance; source library/home and implementation populated library/home. The product content differs intentionally, while the visual grammar is the fidelity target.
+- Główna prawda wizualna: `/private/tmp/HomeLibrary-iOS-library-reference.png`
+- Dodatkowy wzorzec języka 5×12: `/Users/lpociask/Documents/magazyny/5x12/docs/screenshots/library-iphone.jpg`
+- Implementacja mobilna: `/private/tmp/HomeLibraryWeb-final-mobile-top-normalized-375x815.png`
+- Implementacja desktopowa: `/private/tmp/HomeLibraryWeb-final-desktop-top-1440x1000.png`
+- Szczegóły publikacji: `/private/tmp/HomeLibraryWeb-final-detail-mobile-390x844.png`
+- Widok serii prasy: `/private/tmp/HomeLibraryWeb-final-periodicals-mobile.png`
+- Porównanie pełnego widoku: `/private/tmp/HomeLibrary-Web-iOS-final-comparison.png`
+- Porównanie skupione na mastheadzie i metrykach: `/private/tmp/HomeLibrary-Web-iOS-focused-comparison.png`
 
-## Viewports and normalization
+## Normalizacja i stan
 
-| Artifact | Pixel dimensions | Logical viewport | Density |
-|---|---:|---:|---:|
-| 5×12 source | 1206 × 2622 | 402 × 874 pt | 3× |
-| iPhone reference implementation | 1206 × 2622 | 402 × 874 pt | 3× |
-| Compact iPhone implementation | 750 × 1334 | 375 × 667 pt | 2× |
-| iPad mini implementation | 1488 × 2266 | 744 × 1133 pt | 2× |
-| Compact iPhone AX5 | 750 × 1334 | 375 × 667 pt | 2× |
+- Źródło iOS: 1206 × 2622 px; proporcjonalnie znormalizowane do 375 × 815 px.
+- Implementacja: przeglądarka ustawiona na 390 × 844 CSS px, efektywny obszar treści 375 × 844 CSS px ze względu na pionowy pasek przewijania; kadr porównawczy 375 × 815 px, density factor 1.
+- Dodatkowe viewporty: 320 × 568, 820 × 1180 i 1440 × 1000 CSS px.
+- Stan: jasny motyw, zapełniona kolekcja. Źródło ma 6 egzemplarzy, fixture WWW ma 9; różnica danych nie jest różnicą wizualną.
+- Kadr WWW nie zawiera chromu przeglądarki, a źródło iOS zawiera systemowy pasek statusu. Porównanie ocenia właściwy interfejs aplikacji od mastheadu w dół.
 
-The primary source and implementation were captured at identical pixel dimensions, logical viewport, density, light appearance, and home/library state. They were opened in the same comparison input at original resolution. Compact, tablet, empty, populated, and largest accessibility text states were checked separately.
+## Ocena powierzchni wierności
 
-## Full-view comparison evidence
+- Typografia: redakcyjny krój serif dla mastheadów i tytułów oraz systemowy sans dla sterowania odpowiadają podziałowi iOS. Skala, waga, tracking mikrotekstu i zawijanie działają na 320–1440 px.
+- Rytm i układ: papierowa strona, cienkie reguły, płaski pasek czterech metryk, pomarańczowe CTA oraz wiersze publikacji z indeksami odwzorowują hierarchię iOS. Mobile nie ma poziomego overflow.
+- Kolory i tokeny: `#F4EDDF`, `#F0E6D2`, `#171713`, `#6D685E`, `#DD6B24`, `#A9470D` i `#B14E11` są zgodne z `LibraryTheme`.
+- Obrazy: użyto rzeczywistej tekstury papieru z aplikacji iOS. Okładka pojawia się wyłącznie wtedy, gdy istnieje prawdziwy bezpieczny URL; usunięto sztuczną okładkę z monogramem ze szczegółów.
+- Treść: WWW zachowuje komunikat o lokalnym zapisie GitHub Pages. Główne CTA to „Importuj kolekcję”, czyli webowy odpowiednik głównej akcji „Skanuj publikację” z iOS.
+- Ikony: istniejący zestaw liniowych ikon WWW zachowuje wspólną wagę i rozmiar. Dokładna zgodność glifów SF Symbols pozostaje opcjonalnym P3.
 
-- Typography: both use a dominant black serif display, serif explanatory copy, compact uppercase sans-serif labels with tracking, and monospaced metrics. The implementation preserves the source hierarchy without copying the 5×12 wordmark or editorial copy.
-- Spacing and layout: 24 pt page gutters, large editorial section intervals, thin horizontal rules, and a flat paper canvas match the source rhythm. Native iOS toolbar safe areas are an intentional platform adaptation.
-- Colors and tokens: the implementation uses the source paper `#F4EDDF`, warm paper `#F0E6D2`, ink `#171713`, muted ink `#6D685E`, and orange `#DD6B24` for decorative marks. Small semantic text/icons use accessible `#A9470D`, while white-on-orange actions use `#B14E11` so contrast remains above 4.5:1.
-- Image quality: the original 5×12 paper texture is reused as a real raster asset at its native treatment. SF Symbols are used for platform actions; there are no emoji, handcrafted SVGs, CSS/code art, fake illustrations, or placeholder imagery.
-- Copy and content: all visible text belongs to the catalog product and explains scanning, metadata, location, search, and collection state. No design prompt or internal QA copy leaks into the app.
-- Shape and surfaces: content is structured with rules and flat paper surfaces. Rounded treatment is limited to controls; generic pastel cards, glass surfaces, gradients, and decorative shadows were removed.
+## Historia porównań i poprawek
 
-## Focused comparison evidence
+### Iteracja 1 — zablokowana
 
-No separate crop was required because the primary 1206 × 2622 captures make the masthead, metric strip, CTA, search field, and first list row readable at original resolution. The iPad capture additionally verifies row typography, thin rules, metadata hierarchy, and the two-column adaptive layout. The compact and AX5 captures verify wrapping and vertical rhythm at the smallest supported phone height and largest Dynamic Type category.
+- [P0] Mobilny masthead miał 382 px szerokości przy 375 px obszaru treści; tytuł 50,7 px wypychał pomarańczową kropkę do osobnego wiersza i tworzył poziomy scroll.
+- [P1] Przyciski nagłówka miały 42 × 40 px.
+- [P1] Szczegóły bez prawdziwej okładki pokazywały sztuczną, kodową okładkę z monogramem.
+- [P2] Metryki mobilne były układem 2 × 2 zamiast płaskiego paska czterech wartości.
+- [P2] Mobilny toolbar filtrów był zbyt wysoki, a nad katalogiem brakowało równoważnego głównego CTA.
 
-## States and interactions checked
+### Wprowadzone poprawki
 
-- Empty library and populated library.
-- Compact iPhone, 402 × 874 iPhone reference viewport, and iPad mini.
-- Largest accessibility Dynamic Type category; collection title no longer splits inside a word and the page remains scrollable.
-- Scanner unavailable/manual fallback, lookup loading/failure, and add form were inspected during implementation.
-- Scan, manual add, import, export, search, detail navigation, serial-add continuation, duplicate warning, and save routes remain connected.
-- Full iOS automated suite: 77 passed, 0 failed, 0 skipped.
-- Web regression suite: 18 passed, 0 failed.
+- Masthead dostał osobny flexowy punkt akcentowy i kompaktową skalę 31 px; końcowy `scrollWidth == clientWidth` na 320 i 390 px.
+- Oba przyciski nagłówka i przycisk zamknięcia szczegółów mają minimum 44 × 44 px.
+- Szczegóły są pełnoekranowe na telefonie; bez realnej okładki blok obrazu nie jest renderowany.
+- Metryki układają się w jeden czterokolumnowy pasek na telefonie.
+- Filtry mają dwa pola w pierwszym rzędzie i pełną szerokość sortowania w drugim.
+- Dodano pełnoszerokie pomarańczowe CTA „Importuj kolekcję”.
 
-## Findings
+### Iteracja 2 — zaliczona
 
-No actionable P0, P1, or P2 visual differences remain. The native toolbar and product-specific content differ from the reference by design; palette, typography, rhythm, rules, surfaces, icon treatment, and responsive behavior preserve the target language.
+- Dowód po poprawkach: `/private/tmp/HomeLibrary-Web-iOS-final-comparison.png`.
+- Skupiony dowód mastheadu i metryk: `/private/tmp/HomeLibrary-Web-iOS-focused-comparison.png`.
+- Brak pozostałych P0/P1/P2. Różnice funkcjonalne — import zamiast skanowania oraz informacja o braku synchronizacji — są celowe dla statycznej strony GitHub Pages.
 
-### Follow-up polish (P3)
+## Sprawdzone interakcje
 
-- Add real publication covers once the cover/cache roadmap increment lands; until then the intentionally typographic list is coherent and does not use fake cover placeholders.
-- Recheck long user-defined collection names in Polish and non-Latin scripts during the pilot.
+- wyszukiwanie i stan braku wyników;
+- filtry typu i lokalizacji oraz sortowanie;
+- przełącznik siatka/lista;
+- zakładki Katalog/Serie prasy, w tym strzałka klawiatury;
+- szczegóły publikacji i zamknięcie dialogu;
+- import poprawnego `collection.json`, wybór scalania i zachowanie 9 egzemplarzy;
+- eksport uruchamia funkcję i pokazuje potwierdzenie;
+- skrót `⌘K` ustawia fokus w wyszukiwarce;
+- 44-punktowe cele dotykowe, 320 px compact, 390 px mobile, 820 px tablet, 1440 px desktop;
+- konsola przeglądarki: 0 błędów i 0 ostrzeżeń.
 
-## Comparison history
+## Pozostały P3
 
-1. Initial simulator pass found legacy letterboxing with large black bands (P1). Added generated launch-screen metadata to both app configurations. Post-fix compact captures fill the complete display.
-2. Scanner pass found the compact/manual fallback collapsing to roughly one row (P1). Added a scrollable fallback with a 240 pt minimum and 340 pt maximum. Post-fix scanner content and CTA remain reachable.
-3. Add-form pass found lookup actions consuming the compact viewport and obscuring the first data fields (P1). Replaced them with a compact status/action strip and compact form masthead. Post-fix title and location fields remain reachable above the sticky save action.
-4. Compact populated pass found a four-item vertical metric stack and a floating system search control hiding collection content (P1/P2). Replaced the fallback with a 2 × 2 metric grid and added an inline editorial search field. Post-fix evidence: `ios-redesign-compact-populated.png`.
-5. Exact 402 × 874 comparison found long metric labels hyphenating inside words (P2). Added a minimum cell width, single-line tightening, and a 2 × 2 fallback. Post-fix evidence: `ios-redesign-reference-viewport.png`.
-6. Largest Dynamic Type pass found the collection name splitting inside “biblioteka” (P2). Added a bounded three-line display treatment with controlled minimum scaling. Post-fix evidence: `ios-redesign-compact-ax5.png`.
-7. Accessibility review found the source orange below the contrast requirement for small labels and white button text (P2). Kept the exact source orange for decorative rules, then added darker semantic and action variants with measured contrast above 4.5:1. All final captures were regenerated after the fix.
+- W przyszłości można zastąpić istniejące liniowe SVG ikonami z jednej biblioteki o metrykach jeszcze bliższych SF Symbols. Nie zmienia to hierarchii, obsługi ani spójności obecnego widoku.
 
-## Final result
-
-passed
-
-## Pilot dashboard addendum
-
-The opt-in pilot dashboard reuses the same verified paper/ink/orange system and was checked in these states:
-
-- final reference iPhone: `/Users/lpociask/Documents/ChatGPT/katalogowanie ksiazej i prasy/docs/screenshots/ios-pilot-reference.png`;
-- compact 375 × 667: `/private/tmp/HomeLibrary-pilot-compact-2.png`;
-- iPad regular width: `/private/tmp/HomeLibrary-pilot-ipad-2.png`;
-- compact accessibility XXXL after the final reflow: `/private/tmp/HomeLibrary-pilot-compact-ax-final2.png`.
-
-The final accessibility capture removes the previously hyphenated status heading and keeps the privacy explanation readable as one vertically flowing block. All dashboard content remains in a scroll view; normal compact and iPad states preserve the 5×12 masthead, thin rules, flat paper surfaces and single orange accent. No actionable P0–P2 visual issue remains.
+final result: passed

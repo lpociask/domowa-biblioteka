@@ -7,7 +7,7 @@
       http-equiv="Content-Security-Policy"
       content="default-src 'self'; img-src 'self' https://covers.openlibrary.org; script-src 'self'; style-src 'self' 'unsafe-inline'; object-src 'none'; base-uri 'self'; form-action 'self'"
     />
-    <meta name="theme-color" content="#173f37" />
+    <meta name="theme-color" content="#f4eddf" />
     <meta
       name="description"
       content="Półka — prywatny katalog książek i prasy. Wyszukuj publikacje i sprawdzaj, gdzie leżą."
@@ -35,11 +35,11 @@
           <span class="local-status-wide">Lokalnie w przeglądarce</span>
           <span class="local-status-short">Lokalnie</span>
         </span>
-        <button class="button button-secondary header-button" id="export-button" type="button">
+        <button class="button button-secondary header-button" id="export-button" type="button" aria-label="Eksportuj kolekcję do JSON">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 15v4h14v-4" /></svg>
           <span>Eksportuj</span>
         </button>
-        <button class="button button-primary header-button" id="import-button" type="button">
+        <button class="button button-primary header-button" id="import-button" type="button" aria-label="Importuj kolekcję z JSON">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15V3m0 0 4 4m-4-4L8 7M5 10v9h14v-9" /></svg>
           <span>Importuj JSON</span>
         </button>
@@ -58,31 +58,39 @@
     <main id="main-content">
       <section class="collection-hero" aria-labelledby="collection-title">
         <div class="hero-copy">
-          <p class="eyebrow">Twój prywatny inwentarz</p>
-          <h1 id="collection-title">Kolekcja demonstracyjna</h1>
+          <p class="eyebrow" id="collection-eyebrow">Kolekcja · 00</p>
+          <div class="masthead-title">
+            <h1 id="collection-title">Kolekcja demonstracyjna</h1>
+            <span class="masthead-dot" aria-hidden="true"></span>
+          </div>
           <p class="hero-description">
             Książki i prasa w jednym miejscu. Znajdź publikację, sprawdź konkretny egzemplarz i od razu zobacz, gdzie go odłożyłeś.
           </p>
         </div>
 
-        <dl class="stats" aria-label="Podsumowanie kolekcji">
-          <div class="stat stat-primary">
-            <dt>Egzemplarzy</dt>
-            <dd id="stat-total">—</dd>
-          </div>
-          <div class="stat">
-            <dt>Książek</dt>
-            <dd id="stat-books">—</dd>
-          </div>
-          <div class="stat">
-            <dt>Prasy</dt>
-            <dd id="stat-press">—</dd>
-          </div>
-          <div class="stat">
-            <dt>Bez miejsca</dt>
-            <dd id="stat-unlocated">—</dd>
-          </div>
-        </dl>
+        <div class="hero-summary">
+          <dl class="stats" aria-label="Podsumowanie kolekcji">
+            <div class="stat stat-primary">
+              <dt>Egz.</dt>
+              <dd id="stat-total">—</dd>
+            </div>
+            <div class="stat">
+              <dt>Książek</dt>
+              <dd id="stat-books">—</dd>
+            </div>
+            <div class="stat">
+              <dt>Prasy</dt>
+              <dd id="stat-press">—</dd>
+            </div>
+            <div class="stat">
+              <dt>Bez lok.</dt>
+              <dd id="stat-unlocated">—</dd>
+            </div>
+          </dl>
+          <button class="button button-primary hero-import-button" id="hero-import-button" type="button">
+            Importuj kolekcję
+          </button>
+        </div>
       </section>
 
       <section class="catalog" aria-labelledby="catalog-heading">
@@ -128,7 +136,7 @@
             <kbd class="search-shortcut" aria-hidden="true">⌘ K</kbd>
           </div>
 
-          <div class="filter-row" aria-label="Filtry katalogu">
+          <div class="filter-row" role="group" aria-label="Filtry katalogu">
             <label class="select-field">
               <span>Typ</span>
               <select id="type-filter">
@@ -171,9 +179,6 @@
           <div class="publication-grid" id="publication-grid" aria-busy="true"></div>
 
           <div class="empty-state" id="empty-state" hidden>
-            <div class="empty-illustration" aria-hidden="true">
-              <span></span><span></span><span></span>
-            </div>
             <h3>Nie znaleźliśmy takiej publikacji</h3>
             <p>Spróbuj krótszej frazy albo usuń część filtrów.</p>
             <button class="button button-secondary" id="empty-clear-button" type="button">Wyczyść filtry</button>
@@ -201,9 +206,6 @@
           <div class="periodical-series-grid" id="periodical-series-grid" aria-busy="true"></div>
 
           <div class="empty-state" id="periodical-empty-state" hidden>
-            <div class="empty-illustration" aria-hidden="true">
-              <span></span><span></span><span></span>
-            </div>
             <h3>Brak serii dla tego filtra</h3>
             <p>Dodaj numery prasy albo wybierz inny filtr.</p>
           </div>

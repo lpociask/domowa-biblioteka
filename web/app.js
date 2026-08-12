@@ -19,6 +19,7 @@ const MAX_IMPORT_BYTES = 25 * 1024 * 1024;
 
 const elements = {
   collectionTitle: document.querySelector("#collection-title"),
+  collectionEyebrow: document.querySelector("#collection-eyebrow"),
   statTotal: document.querySelector("#stat-total"),
   statBooks: document.querySelector("#stat-books"),
   statPress: document.querySelector("#stat-press"),
@@ -44,6 +45,7 @@ const elements = {
   periodicalExclusions: document.querySelector("#periodical-exclusions"),
   periodicalEmptyState: document.querySelector("#periodical-empty-state"),
   importButton: document.querySelector("#import-button"),
+  heroImportButton: document.querySelector("#hero-import-button"),
   exportButton: document.querySelector("#export-button"),
   resetButton: document.querySelector("#reset-button"),
   fileInput: document.querySelector("#file-input"),
@@ -166,6 +168,7 @@ function makeCover(publication, { allowRemote = false, imageAlt = "" } = {}) {
 
   const coverUrl = allowRemote ? automaticCoverUrl(publication.metadata.coverUrl) : null;
   if (coverUrl) {
+    cover.classList.add("has-remote-source");
     const image = document.createElement("img");
     image.className = "publication-cover-image";
     image.src = coverUrl;
@@ -174,32 +177,56 @@ function makeCover(publication, { allowRemote = false, imageAlt = "" } = {}) {
     image.decoding = "async";
     image.referrerPolicy = "no-referrer";
     image.addEventListener("load", () => cover.classList.add("has-cover-image"), { once: true });
-    image.addEventListener("error", () => image.remove(), { once: true });
+    image.addEventListener("error", () => {
+      const coverContainer = cover.closest(".publication-cover-wrap, .detail-cover-panel");
+      const detailLayout = cover.closest(".detail-layout");
+      coverContainer?.remove();
+      detailLayout?.classList.add("without-cover");
+    }, { once: true });
     cover.append(image);
   }
   return cover;
 }
 
-function makeCard(entry) {
+function makeCard(entry, index) {
   const { publication, ownedItem, locationLabel } = entry;
   const card = makeElement("button", "publication-card");
   card.type = "button";
   card.dataset.entryId = entry.id;
-  card.setAttribute("aria-label", `Pokaż szczegóły: ${publication.title}, ${locationLabel}`);
+  card.setAttribute(
+    "aria-label",
+    `Pokaż szczegóły: ${publication.title}, ${statusLabel(ownedItem.status)}, ${locationLabel}`,
+  );
+  card.setAttribute("aria-haspopup", "dialog");
+  card.setAttribute("aria-controls", "detail-dialog");
 
-  const coverWrap = makeElement("div", "publication-cover-wrap");
-  coverWrap.append(makeCover(publication));
-  if (ownedItem.status !== "owned") {
-    coverWrap.append(makeElement("span", "status-chip", statusLabel(ownedItem.status)));
+  const coverUrl = automaticCoverUrl(publication.metadata.coverUrl);
+  let coverWrap = null;
+  if (coverUrl) {
+    coverWrap = makeElement("div", "publication-cover-wrap");
+    coverWrap.append(makeCover(publication, {
+      allowRemote: true,
+      imageAlt: `Okładka publikacji „${publication.title}”`,
+    }));
   }
 
   const info = makeElement("div", "publication-info");
   const context = issueLabel(publication) || (publication.publicationYear ? String(publication.publicationYear) : "Bez daty");
+  const kicker = makeElement("p", "publication-kicker");
+  kicker.append(
+    makeElement("span", "publication-index", String(index + 1).padStart(2, "0")),
+    makeElement("span", "publication-kicker-rule", ""),
+    makeElement("span", "", `${typeLabel(publication)} · ${context}`),
+  );
   info.append(
-    makeElement("p", "publication-kicker", `${typeLabel(publication)} · ${context}`),
+    kicker,
     makeElement("h3", "publication-title", publication.title),
     makeElement("p", "publication-author", authorLabel(publication)),
   );
+
+  if (ownedItem.status !== "owned") {
+    info.append(makeElement("span", "status-chip", statusLabel(ownedItem.status)));
+  }
 
   const location = makeElement(
     "p",
@@ -207,7 +234,8 @@ function makeCard(entry) {
   );
   location.append(icon("location"), makeElement("span", "", locationLabel));
   info.append(location);
-  card.append(coverWrap, info);
+  if (coverWrap) card.append(coverWrap);
+  card.append(info);
   return card;
 }
 
@@ -287,6 +315,7 @@ function makePeriodicalSeriesCard(series) {
     chip.title = issue.copies
       .map((copy) => `${statusLabel(copy.status)} · ${copy.location}`)
       .join("\n");
+    chip.setAttribute("aria-label", `${periodicalIssueName(issue)}. ${chip.title}`);
     issueList.append(chip);
   }
   if (series.issues.length > visibleIssues.length) {
@@ -460,6 +489,7 @@ function render() {
   if (!state.collection) return;
   const stats = collectionStats(state.collection);
   elements.collectionTitle.textContent = state.collection.collection.name;
+  elements.collectionEyebrow.textContent = `KOLEKCJA · ${String(stats.total).padStart(2, "0")}`;
   document.title = `${state.collection.collection.name} — Półka`;
   elements.statTotal.textContent = stats.total.toLocaleString("pl-PL");
   elements.statBooks.textContent = stats.books.toLocaleString("pl-PL");
@@ -537,17 +567,23 @@ function openDetail(entryId) {
   elements.detailContent.replaceChildren();
 
   const layout = makeElement("div", "detail-layout");
-  const coverPanel = makeElement("div", "detail-cover-panel");
-  const detailCover = makeCover(publication, {
-    allowRemote: true,
-    imageAlt: `Okładka publikacji „${publication.title}”`,
-  });
-  coverPanel.append(
-    detailCover,
-    makeElement("span", "detail-status", statusLabel(ownedItem.status)),
-  );
+  const coverUrl = automaticCoverUrl(publication.metadata.coverUrl);
+  let coverPanel = null;
+  if (coverUrl) {
+    coverPanel = makeElement("div", "detail-cover-panel");
+    const detailCover = makeCover(publication, {
+      allowRemote: true,
+      imageAlt: `Okładka publikacji „${publication.title}”`,
+    });
+    coverPanel.append(
+      detailCover,
+      makeElement("span", "detail-status", statusLabel(ownedItem.status)),
+    );
+  } else {
+    layout.classList.add("without-cover");
+  }
   const isbn = publication.identifiers.isbn13;
-  if (isbn && automaticCoverUrl(publication.metadata.coverUrl)) {
+  if (coverPanel && isbn) {
     const credit = makeElement("a", "cover-credit", "Okładka · Open Library");
     credit.href = `https://openlibrary.org/isbn/${encodeURIComponent(isbn)}`;
     credit.target = "_blank";
@@ -556,7 +592,11 @@ function openDetail(entryId) {
   }
 
   const body = makeElement("div", "detail-body");
-  body.append(makeElement("p", "detail-type", [typeLabel(publication), issueLabel(publication)].filter(Boolean).join(" · ")));
+  body.append(makeElement(
+    "p",
+    "detail-type",
+    [typeLabel(publication), issueLabel(publication), statusLabel(ownedItem.status)].filter(Boolean).join(" · "),
+  ));
   const title = makeElement("h2", "", publication.title);
   title.id = "detail-title";
   body.append(title);
@@ -604,7 +644,8 @@ function openDetail(entryId) {
     body.append(makeElement("p", "detail-source", `Źródło: ${publication.metadata.source}`));
   }
 
-  layout.append(coverPanel, body);
+  if (coverPanel) layout.append(coverPanel);
+  layout.append(body);
   elements.detailContent.append(layout);
   elements.detailDialog.showModal();
 }
@@ -620,10 +661,12 @@ function showToast(message, error = false) {
   window.clearTimeout(state.toastTimer);
   elements.toast.textContent = message;
   elements.toast.classList.toggle("is-error", error);
+  elements.toast.setAttribute("role", error ? "alert" : "status");
+  elements.toast.setAttribute("aria-live", error ? "assertive" : "polite");
   elements.toast.hidden = false;
   state.toastTimer = window.setTimeout(() => {
     elements.toast.hidden = true;
-  }, 4200);
+  }, error ? 8000 : 4200);
 }
 
 function persistCollection(collection = state.collection) {
@@ -767,6 +810,7 @@ for (const button of elements.periodicalFilters) {
   });
 }
 elements.importButton.addEventListener("click", () => elements.fileInput.click());
+elements.heroImportButton.addEventListener("click", () => elements.fileInput.click());
 elements.fileInput.addEventListener("change", () => {
   const [file] = elements.fileInput.files;
   if (file) prepareImport(file);
