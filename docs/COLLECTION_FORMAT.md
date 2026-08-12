@@ -40,7 +40,9 @@ Maszynowy kontrakt znajduje się w [`collection.schema.json`](collection.schema.
       },
       "issue": null,
       "metadata": {
-        "source": "manual"
+        "source": "manual",
+        "coverUrl": "https://covers.openlibrary.org/b/isbn/9780306406157-M.jpg?default=false",
+        "coverSource": "openlibrary"
       },
       "createdAt": "2026-08-11T12:00:00Z",
       "updatedAt": "2026-08-11T12:00:00Z"
@@ -67,11 +69,22 @@ Maszynowy kontrakt znajduje się w [`collection.schema.json`](collection.schema.
 - Identyfikatory rekordów są stabilnymi, niepustymi stringami i nie muszą być UUID. iOS zachowuje zewnętrzną wartość do ponownego eksportu; wewnętrznie zachowuje poprawny UUID albo deterministycznie mapuje tekst na namespaced UUID.
 - Daty używają ISO 8601.
 - `type` publikacji w v1 ma wartość `book` albo `periodical`.
-- `identifiers` może zawierać ISBN‑13, ISSN, EAN i surowy `barcode`; żaden z nich nie jest kluczem głównym egzemplarza. `barcode` zachowuje oryginalną treść (np. także myślniki lub URL z QR), podczas gdy identyfikatory bibliograficzne mogą być normalizowane do zwartej postaci.
+- `identifiers` może zawierać ISBN‑13, ISSN, EAN i surowy `barcode`; żaden z nich nie jest kluczem głównym egzemplarza. `barcode` zachowuje oryginalną treść (np. także myślniki lub URL z QR), podczas gdy identyfikatory bibliograficzne mogą być normalizowane do zwartej postaci. Dla prasy pełny kod z dodatkiem ma kanoniczną postać `EAN13+EAN2` albo `EAN13+EAN5`, np. `9770033248007+05`; pole `ean` nadal zawiera wyłącznie główne 13 cyfr.
 - `issue` jest opcjonalne i może zawierać `number`, `volume` oraz `date` dla konkretnego numeru prasy.
 - `locationPath` pozwala wyświetlić lokalizację bez dodatkowych zapytań. `locationId` może być pominięte w najwcześniejszych eksportach.
 - `metadata.source` opisuje pochodzenie danych. Aplikacja iOS zapisuje obecnie `manual`, `scan`, `bn` albo `openlibrary`; import zachowuje również inne niepuste wartości źródłowe.
+- `metadata.coverUrl` jest opcjonalną, przenośną referencją do okładki, a `metadata.coverSource` zapisuje jej pochodzenie niezależnie od źródła opisu bibliograficznego. Writer v1 zapisuje wyłącznie bezpieczny adres HTTPS bez danych logowania, po normalizacji mieszczący się w 2048 bajtach. Reader zachowuje zgodność ze starszymi plikami: nieważną lub niebezpieczną referencję oraz powiązane `coverSource` pomija, ale nie odrzuca całej publikacji ani kolekcji. Eksport nie zawiera lokalnej ścieżki ani bajtów obrazu.
 - Nieznane opcjonalne pola powinny być ignorowane, nie powodować odrzucenia całego importu.
+
+### Dodatki EAN‑2/EAN‑5 w prasie
+
+Dodatek jest częścią surowego kodu, a nie osobnym polem schematu v1. Dzięki temu starsze klienty zachowują zgodność, a iOS i WWW mogą odtworzyć pełny zapis bez migracji bazy. Poprawny pełny kod prasy spełnia wszystkie warunki:
+
+- główny EAN‑13 ma prefiks `977` i poprawną cyfrę kontrolną;
+- po znaku `+` występują dokładnie 2 albo 5 cyfr;
+- `identifiers.ean` przechowuje główny EAN‑13, a `identifiers.barcode` zapis `EAN13+dodatek`.
+
+Identyczny pełny kod jest kandydatem do wykrycia tego samego numeru, ale nie unieważnia jawnego konfliktu numeru lub daty — wydawca może ponownie użyć dodatku, zwłaszcza EAN‑2, w kolejnym cyklu. Interfejs zawsze pozwala oznaczyć skan jako osobny numer. Dwa różne niepuste dodatki nie są scalane. Sam EAN‑977 albo ISSN identyfikuje serię, nie numer. Znaczenie dodatku zależy od wydawcy, dlatego aplikacja nie kopiuje go automatycznie do `issue.number`; użytkownik potwierdza numer z okładką. Gdy po jednej stronie starszego rekordu brakuje dodatku, nadal można użyć zgodnego ISSN oraz jawnego numeru lub daty jako bezpiecznego fallbacku. Sprzeczne jawne główne EAN‑977 nigdy nie są scalane, a `ean` i główna część `barcode` muszą pozostać zgodne.
 
 ## Import w iOS
 
@@ -97,6 +110,7 @@ Semantyka importu jest celowo bezpieczna i addytywna:
 - import do pustej bazy przyjmuje `collection.id` i `collection.name`; przy scalaniu z istniejącą kolekcją oba klienty zachowują jej lokalną tożsamość;
 - publikacja bez żadnego fizycznego egzemplarza jest odrzucana, ponieważ bieżący model i eksport iOS są inwentarzem posiadanych obiektów;
 - brak `metadata.source` otrzymuje wartość `import`;
+- prawidłowy `metadata.coverUrl` jest normalizowany do adresu HTTPS bez danych logowania i po normalizacji może mieć najwyżej 2048 bajtów; nieznany host może zostać zachowany w eksporcie, ale nie jest automatycznie pobierany; nieważna referencja ze starszego pliku oraz jej `coverSource` są pomijane bez odrzucania publikacji lub całego importu;
 - nieznane pola są ignorowane, dzięki czemu opcjonalne rozszerzenia webu nie blokują importu.
 
 Odczyt, dekodowanie i walidacja pliku przebiegają poza głównym wątkiem. Dopiero sprawdzony plan importu jest atomowo stosowany do SwiftData na `MainActor`.
@@ -106,6 +120,8 @@ Import JSON nie jest synchronizacją ani mechanizmem rozwiązywania konfliktów.
 ## Prywatność pliku
 
 Eksport może zawierać nazwy pomieszczeń, dokładne ścieżki półek i prywatne notatki. Aplikacja nie wysyła go automatycznie do chmury. Użytkownik wybiera sposób transferu i miejsce kopii, a prawdziwe eksporty nie powinny trafiać do repozytorium ani publicznego hostingu.
+
+Okładki Open Library są pobierane tylko w przepływie świadomie uruchomionego lookupu, po wybraniu na WWW widoku „Okładki” albo po otwarciu szczegółów. Domyślna lista nie odpytuje serwera obrazów podczas przewijania. WWW nie pobiera całej listy okładek podczas otwierania kolekcji; zewnętrzne obrazy pojawiają się dopiero po świadomej zmianie widoku lub wejściu w szczegóły publikacji.
 
 ## Migracje
 

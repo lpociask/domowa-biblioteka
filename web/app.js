@@ -1,5 +1,8 @@
 import {
   ITEM_TYPES,
+  PilotReportImportError,
+  analyzePeriodicals,
+  automaticCoverUrl,
   catalogEntries,
   collectionStats,
   exportPayload,
@@ -11,11 +14,12 @@ import {
 } from "./lib/catalog-core.mjs";
 
 const STORAGE_KEY = "polka.collection.v1";
-const VIEW_KEY = "polka.catalog.view";
+const VIEW_KEY = "polka.catalog.view.v2";
 const MAX_IMPORT_BYTES = 25 * 1024 * 1024;
 
 const elements = {
   collectionTitle: document.querySelector("#collection-title"),
+  collectionEyebrow: document.querySelector("#collection-eyebrow"),
   statTotal: document.querySelector("#stat-total"),
   statBooks: document.querySelector("#stat-books"),
   statPress: document.querySelector("#stat-press"),
@@ -31,7 +35,17 @@ const elements = {
   emptyClear: document.querySelector("#empty-clear-button"),
   gridView: document.querySelector("#grid-view-button"),
   listView: document.querySelector("#list-view-button"),
+  catalogTab: document.querySelector("#catalog-tab"),
+  periodicalsTab: document.querySelector("#periodicals-tab"),
+  catalogPanel: document.querySelector("#catalog-panel"),
+  periodicalsPanel: document.querySelector("#periodicals-panel"),
+  periodicalFilters: [...document.querySelectorAll("[data-periodical-filter]")],
+  periodicalGrid: document.querySelector("#periodical-series-grid"),
+  periodicalResultsCount: document.querySelector("#periodical-results-count"),
+  periodicalExclusions: document.querySelector("#periodical-exclusions"),
+  periodicalEmptyState: document.querySelector("#periodical-empty-state"),
   importButton: document.querySelector("#import-button"),
+  heroImportButton: document.querySelector("#hero-import-button"),
   exportButton: document.querySelector("#export-button"),
   resetButton: document.querySelector("#reset-button"),
   fileInput: document.querySelector("#file-input"),
@@ -52,7 +66,9 @@ const state = {
   collection: null,
   pendingImport: null,
   pendingFilename: "",
-  view: readLocalValue(VIEW_KEY) === "list" ? "list" : "grid",
+  view: readLocalValue(VIEW_KEY) === "grid" ? "grid" : "list",
+  mode: "catalog",
+  periodicalFilter: "all",
   toastTimer: null,
 };
 
@@ -135,13 +151,22 @@ function issueLabel(publication) {
   return [publication.issue.number, publication.issue.date].filter(Boolean).join(" · ");
 }
 
+function compactCardContext(publication) {
+  if (publication.type !== "periodical") {
+    return publication.publicationYear ? String(publication.publicationYear) : "Bez daty";
+  }
+  const year = /^\d{4}/.exec(publication.issue?.date || "")?.[0] || publication.publicationYear || "";
+  const number = String(publication.issue?.number || "").replace(/^wydanie\s+/i, "").trim();
+  return number || (year ? String(year) : "Bez numeru");
+}
+
 function authorLabel(publication) {
   if (publication.authors.length) return publication.authors.join(", ");
   if (publication.publisher) return publication.publisher;
   return publication.type === "periodical" ? "Numer czasopisma" : "Autor nieznany";
 }
 
-function makeCover(publication) {
+function makeCover(publication, { allowRemote = false, imageAlt = "" } = {}) {
   const cover = makeElement("div", "publication-cover");
   cover.style.setProperty("--cover-color", safeColor(publication.metadata.coverColor));
   cover.append(
@@ -149,29 +174,73 @@ function makeCover(publication) {
     makeElement("strong", "cover-monogram", titleMonogram(publication.title)),
     makeElement("span", "cover-year", publication.publicationYear || "bez daty"),
   );
+
+  const coverUrl = allowRemote ? automaticCoverUrl(publication.metadata.coverUrl) : null;
+  if (coverUrl) {
+    cover.classList.add("has-remote-source");
+    const image = document.createElement("img");
+    image.className = "publication-cover-image";
+    image.alt = imageAlt;
+    image.loading = allowRemote ? "lazy" : "eager";
+    image.decoding = "async";
+    image.referrerPolicy = "no-referrer";
+    image.addEventListener("load", () => cover.classList.add("has-cover-image"), { once: true });
+    image.addEventListener("error", () => {
+      const detailPanel = cover.closest(".detail-cover-panel");
+      const detailLayout = cover.closest(".detail-layout");
+      if (detailPanel) {
+        detailPanel.remove();
+        detailLayout?.classList.add("without-cover");
+        return;
+      }
+      image.remove();
+      cover.classList.remove("has-remote-source", "has-cover-image");
+    }, { once: true });
+    image.src = coverUrl;
+    cover.append(image);
+  }
   return cover;
 }
 
-function makeCard(entry) {
+function makeCard(entry, index) {
   const { publication, ownedItem, locationLabel } = entry;
   const card = makeElement("button", "publication-card");
   card.type = "button";
   card.dataset.entryId = entry.id;
-  card.setAttribute("aria-label", `Pokaż szczegóły: ${publication.title}, ${locationLabel}`);
+  card.setAttribute(
+    "aria-label",
+    `Pokaż szczegóły: ${publication.title}, ${statusLabel(ownedItem.status)}, ${locationLabel}`,
+  );
+  card.setAttribute("aria-haspopup", "dialog");
+  card.setAttribute("aria-controls", "detail-dialog");
 
-  const coverWrap = makeElement("div", "publication-cover-wrap");
-  coverWrap.append(makeCover(publication));
-  if (ownedItem.status !== "owned") {
-    coverWrap.append(makeElement("span", "status-chip", statusLabel(ownedItem.status)));
+  let coverWrap = null;
+  if (state.view === "grid") {
+    coverWrap = makeElement("div", "publication-cover-wrap");
+    coverWrap.append(makeCover(publication, {
+      allowRemote: true,
+      imageAlt: `Okładka publikacji „${publication.title}”`,
+    }));
   }
 
   const info = makeElement("div", "publication-info");
   const context = issueLabel(publication) || (publication.publicationYear ? String(publication.publicationYear) : "Bez daty");
+  const kicker = makeElement("p", "publication-kicker");
+  kicker.append(
+    makeElement("span", "publication-index", String(index + 1).padStart(2, "0")),
+    makeElement("span", "publication-kicker-rule", ""),
+    makeElement("span", "publication-context-full", `${typeLabel(publication)} · ${context}`),
+    makeElement("span", "publication-context-compact", `${typeLabel(publication)} · ${compactCardContext(publication)}`),
+  );
   info.append(
-    makeElement("p", "publication-kicker", `${typeLabel(publication)} · ${context}`),
+    kicker,
     makeElement("h3", "publication-title", publication.title),
     makeElement("p", "publication-author", authorLabel(publication)),
   );
+
+  if (ownedItem.status !== "owned") {
+    info.append(makeElement("span", "status-chip", statusLabel(ownedItem.status)));
+  }
 
   const location = makeElement(
     "p",
@@ -179,7 +248,173 @@ function makeCard(entry) {
   );
   location.append(icon("location"), makeElement("span", "", locationLabel));
   info.append(location);
-  card.append(coverWrap, info);
+  if (coverWrap) card.append(coverWrap);
+  card.append(info);
+  return card;
+}
+
+function periodicalIssueName(issue) {
+  return issue.canonicalIssueNumber || issue.issueNumber || "Bez numeru";
+}
+
+function periodicalFinding(title, className) {
+  const finding = makeElement("section", `series-finding ${className}`);
+  finding.append(makeElement("h4", "series-finding-title", title));
+  return finding;
+}
+
+function makeSeriesMetric(value, label) {
+  const metric = makeElement("div", "series-metric");
+  metric.append(
+    makeElement("strong", "", Number(value).toLocaleString("pl-PL")),
+    makeElement("span", "", label),
+  );
+  return metric;
+}
+
+function makePeriodicalSeriesCard(series) {
+  const card = makeElement("article", "periodical-series-card");
+  const hasMissing = series.missingIssues.length > 0;
+  const hasDuplicates =
+    series.multipleCopyGroups.length > 0 || series.duplicatePublicationGroups.length > 0;
+
+  const header = makeElement("header", "series-card-header");
+  const heading = makeElement("div", "series-heading-copy");
+  const identification = series.issn
+    ? `ISSN ${series.issn}`
+    : series.identification === "conflict"
+      ? "Identyfikatory do sprawdzenia"
+      : "Seria rozpoznana z metadanych";
+  heading.append(
+    makeElement("p", "series-kicker", identification),
+    makeElement("h3", "", series.title),
+  );
+  const metadata = [series.publisher, series.language?.toLocaleUpperCase("pl-PL")].filter(Boolean);
+  if (metadata.length) heading.append(makeElement("p", "series-metadata", metadata.join(" · ")));
+
+  let stateLabel = "Bez wykrytych luk";
+  let stateClass = "is-complete";
+  if (hasMissing && hasDuplicates) {
+    stateLabel = "Luki i duplikaty";
+    stateClass = "has-both";
+  } else if (hasMissing) {
+    stateLabel = "Wykryte luki";
+    stateClass = "has-missing";
+  } else if (hasDuplicates) {
+    stateLabel = "Wykryte duplikaty";
+    stateClass = "has-duplicates";
+  }
+  header.append(heading, makeElement("span", `series-state ${stateClass}`, stateLabel));
+
+  const metrics = makeElement("div", "series-metrics", null);
+  metrics.setAttribute("aria-label", "Podsumowanie serii");
+  metrics.append(
+    makeSeriesMetric(series.issues.length, "rekordów numerów"),
+    makeSeriesMetric(
+      series.issues.reduce((total, issue) => total + issue.copies.length, 0),
+      "egzemplarzy",
+    ),
+    makeSeriesMetric(series.missingIssues.length, "braków"),
+  );
+
+  const issuesSection = makeElement("section", "series-issues");
+  issuesSection.append(makeElement("h4", "series-subheading", "Numery w katalogu"));
+  const issueList = makeElement("div", "series-issue-list");
+  const visibleIssues = series.issues.slice(0, 36);
+  for (const issue of visibleIssues) {
+    const chip = makeElement("span", "series-issue-chip");
+    chip.append(makeElement("strong", "", periodicalIssueName(issue)));
+    const cycleAlreadyVisible = issue.cycle && !periodicalIssueName(issue).includes(String(issue.cycle.value));
+    if (cycleAlreadyVisible) chip.append(makeElement("small", "", issue.cycle.label));
+    chip.title = issue.copies
+      .map((copy) => `${statusLabel(copy.status)} · ${copy.location}`)
+      .join("\n");
+    chip.setAttribute("aria-label", `${periodicalIssueName(issue)}. ${chip.title}`);
+    issueList.append(chip);
+  }
+  if (series.issues.length > visibleIssues.length) {
+    issueList.append(
+      makeElement("span", "series-issue-chip is-overflow", `+${series.issues.length - visibleIssues.length}`),
+    );
+  }
+  issuesSection.append(issueList);
+
+  const findings = makeElement("div", "series-findings");
+  if (hasMissing) {
+    const missingFinding = periodicalFinding("Brakujące wydania", "is-missing");
+    const groupedMissing = new Map();
+    for (const missingIssue of series.missingIssues) {
+      const key = `${missingIssue.cycle.kind}:${missingIssue.cycle.value}`;
+      if (!groupedMissing.has(key)) groupedMissing.set(key, { cycle: missingIssue.cycle, numbers: [] });
+      groupedMissing.get(key).numbers.push(missingIssue.number);
+    }
+    const list = makeElement("ul", "series-finding-list");
+    for (const { cycle, numbers } of groupedMissing.values()) {
+      const item = document.createElement("li");
+      item.append(
+        makeElement("span", "", cycle.label),
+        makeElement("strong", "", numbers.join(", ")),
+      );
+      list.append(item);
+    }
+    missingFinding.append(list);
+    findings.append(missingFinding);
+  }
+
+  if (series.multipleCopyGroups.length) {
+    const copiesFinding = periodicalFinding("Wiele fizycznych kopii", "is-duplicates");
+    const list = makeElement("ul", "series-finding-list");
+    for (const group of series.multipleCopyGroups) {
+      const issue = series.issues.find((candidate) => candidate.publicationId === group.publicationId);
+      const item = document.createElement("li");
+      item.append(
+        makeElement("span", "", issue ? periodicalIssueName(issue) : "Numer bez oznaczenia"),
+        makeElement("strong", "", `${group.itemIds.length} egz.`),
+      );
+      list.append(item);
+    }
+    copiesFinding.append(list);
+    findings.append(copiesFinding);
+  }
+
+  if (series.duplicatePublicationGroups.length) {
+    const recordsFinding = periodicalFinding("Powtórzone rekordy publikacji", "is-duplicates");
+    const list = makeElement("ul", "series-finding-list");
+    for (const group of series.duplicatePublicationGroups) {
+      const item = document.createElement("li");
+      const number = group.range.first === group.range.last
+        ? String(group.range.first)
+        : `${group.range.first}–${group.range.last}`;
+      item.append(
+        makeElement("span", "", `${number} · ${group.cycle.label}`),
+        makeElement("strong", "", `${group.publicationIds.length} rekordy`),
+      );
+      list.append(item);
+    }
+    recordsFinding.append(list);
+    findings.append(recordsFinding);
+  }
+
+  if (!findings.childElementCount) {
+    findings.append(
+      makeElement(
+        "p",
+        "series-clear-state",
+        "W rozpoznanym zakresie nie ma wewnętrznych luk ani powtórzeń.",
+      ),
+    );
+  }
+
+  if (series.warnings.length) {
+    const warnings = makeElement("details", "series-warnings");
+    warnings.append(makeElement("summary", "", `Uwagi do danych (${series.warnings.length})`));
+    const warningList = document.createElement("ul");
+    for (const warning of series.warnings) warningList.append(makeElement("li", "", warning.message));
+    warnings.append(warningList);
+    card.append(header, metrics, issuesSection, findings, warnings);
+  } else {
+    card.append(header, metrics, issuesSection, findings);
+  }
   return card;
 }
 
@@ -219,10 +454,56 @@ function updateLocationOptions() {
     : "all";
 }
 
+function renderPeriodicals() {
+  const analysis = analyzePeriodicals(state.collection);
+  const visible = analysis.series.filter((series) => {
+    if (state.periodicalFilter === "missing") return series.missingIssues.length > 0;
+    if (state.periodicalFilter === "duplicates") {
+      return series.multipleCopyGroups.length > 0 || series.duplicatePublicationGroups.length > 0;
+    }
+    return true;
+  });
+  elements.periodicalGrid.replaceChildren(...visible.map(makePeriodicalSeriesCard));
+  elements.periodicalGrid.hidden = visible.length === 0;
+  elements.periodicalGrid.setAttribute("aria-busy", "false");
+  elements.periodicalEmptyState.hidden = visible.length !== 0;
+  elements.periodicalResultsCount.textContent = `${visible.length.toLocaleString("pl-PL")} ${pluralize(visible.length, ["seria", "serie", "serii"])} z ${analysis.series.length.toLocaleString("pl-PL")}`;
+  elements.periodicalExclusions.textContent = analysis.excludedArchivedCopyCount
+    ? `Pominięto ${analysis.excludedArchivedCopyCount.toLocaleString("pl-PL")} ${pluralize(analysis.excludedArchivedCopyCount, ["archiwalny egzemplarz", "archiwalne egzemplarze", "archiwalnych egzemplarzy"])}.`
+    : "";
+  elements.periodicalExclusions.hidden = analysis.excludedArchivedCopyCount === 0;
+  for (const button of elements.periodicalFilters) {
+    const active = button.dataset.periodicalFilter === state.periodicalFilter;
+    button.classList.toggle("is-active", active);
+    button.setAttribute("aria-pressed", String(active));
+  }
+}
+
+function renderMode() {
+  const showingCatalog = state.mode === "catalog";
+  elements.catalogPanel.hidden = !showingCatalog;
+  elements.periodicalsPanel.hidden = showingCatalog;
+  elements.catalogTab.classList.toggle("is-active", showingCatalog);
+  elements.periodicalsTab.classList.toggle("is-active", !showingCatalog);
+  elements.catalogTab.setAttribute("aria-selected", String(showingCatalog));
+  elements.periodicalsTab.setAttribute("aria-selected", String(!showingCatalog));
+  elements.catalogTab.tabIndex = showingCatalog ? 0 : -1;
+  elements.periodicalsTab.tabIndex = showingCatalog ? -1 : 0;
+}
+
+function setMode(mode, { focus = false } = {}) {
+  state.mode = mode === "periodicals" ? "periodicals" : "catalog";
+  renderMode();
+  if (focus) {
+    (state.mode === "catalog" ? elements.catalogTab : elements.periodicalsTab).focus();
+  }
+}
+
 function render() {
   if (!state.collection) return;
   const stats = collectionStats(state.collection);
   elements.collectionTitle.textContent = state.collection.collection.name;
+  elements.collectionEyebrow.textContent = `KOLEKCJA · ${String(stats.total).padStart(2, "0")}`;
   document.title = `${state.collection.collection.name} — Półka`;
   elements.statTotal.textContent = stats.total.toLocaleString("pl-PL");
   elements.statBooks.textContent = stats.books.toLocaleString("pl-PL");
@@ -255,6 +536,8 @@ function render() {
   elements.gridView.setAttribute("aria-pressed", String(state.view === "grid"));
   elements.listView.setAttribute("aria-pressed", String(state.view === "list"));
   elements.storageSummary.textContent = `${stats.total.toLocaleString("pl-PL")} ${pluralize(stats.total, ["egzemplarz", "egzemplarze", "egzemplarzy"])} · zapis lokalny`;
+  renderPeriodicals();
+  renderMode();
 }
 
 function clearFilters() {
@@ -262,7 +545,7 @@ function clearFilters() {
   elements.type.value = "all";
   elements.location.value = "all";
   render();
-  elements.search.focus();
+  if (state.mode === "catalog") elements.search.focus();
 }
 
 function detailPair(term, description) {
@@ -298,11 +581,36 @@ function openDetail(entryId) {
   elements.detailContent.replaceChildren();
 
   const layout = makeElement("div", "detail-layout");
-  const coverPanel = makeElement("div", "detail-cover-panel");
-  coverPanel.append(makeCover(publication), makeElement("span", "detail-status", statusLabel(ownedItem.status)));
+  const coverUrl = automaticCoverUrl(publication.metadata.coverUrl);
+  let coverPanel = null;
+  if (coverUrl) {
+    coverPanel = makeElement("div", "detail-cover-panel");
+    const detailCover = makeCover(publication, {
+      allowRemote: true,
+      imageAlt: `Okładka publikacji „${publication.title}”`,
+    });
+    coverPanel.append(
+      detailCover,
+      makeElement("span", "detail-status", statusLabel(ownedItem.status)),
+    );
+  } else {
+    layout.classList.add("without-cover");
+  }
+  const isbn = publication.identifiers.isbn13;
+  if (coverPanel && isbn) {
+    const credit = makeElement("a", "cover-credit", "Okładka · Open Library");
+    credit.href = `https://openlibrary.org/isbn/${encodeURIComponent(isbn)}`;
+    credit.target = "_blank";
+    credit.rel = "noopener noreferrer";
+    coverPanel.append(credit);
+  }
 
   const body = makeElement("div", "detail-body");
-  body.append(makeElement("p", "detail-type", [typeLabel(publication), issueLabel(publication)].filter(Boolean).join(" · ")));
+  body.append(makeElement(
+    "p",
+    "detail-type",
+    [typeLabel(publication), issueLabel(publication), statusLabel(ownedItem.status)].filter(Boolean).join(" · "),
+  ));
   const title = makeElement("h2", "", publication.title);
   title.id = "detail-title";
   body.append(title);
@@ -350,7 +658,8 @@ function openDetail(entryId) {
     body.append(makeElement("p", "detail-source", `Źródło: ${publication.metadata.source}`));
   }
 
-  layout.append(coverPanel, body);
+  if (coverPanel) layout.append(coverPanel);
+  layout.append(body);
   elements.detailContent.append(layout);
   elements.detailDialog.showModal();
 }
@@ -366,10 +675,12 @@ function showToast(message, error = false) {
   window.clearTimeout(state.toastTimer);
   elements.toast.textContent = message;
   elements.toast.classList.toggle("is-error", error);
+  elements.toast.setAttribute("role", error ? "alert" : "status");
+  elements.toast.setAttribute("aria-live", error ? "assertive" : "polite");
   elements.toast.hidden = false;
   state.toastTimer = window.setTimeout(() => {
     elements.toast.hidden = true;
-  }, 4200);
+  }, error ? 8000 : 4200);
 }
 
 function persistCollection(collection = state.collection) {
@@ -433,7 +744,11 @@ async function prepareImport(file) {
     elements.importSummary.textContent = `${file.name}: ${stats.total} ${pluralize(stats.total, ["egzemplarz", "egzemplarze", "egzemplarzy"])}, ${stats.publications} ${pluralize(stats.publications, ["publikacja", "publikacje", "publikacji"])} i ${collection.locations.length} ${pluralize(collection.locations.length, ["lokalizacja", "lokalizacje", "lokalizacji"])}.`;
     elements.importDialog.showModal();
   } catch (error) {
-    showToast(`Nie udało się zaimportować pliku: ${error.message}`, true);
+    const message =
+      error instanceof PilotReportImportError
+        ? error.message
+        : `Nie udało się zaimportować pliku: ${error.message}`;
+    showToast(message, true);
   } finally {
     elements.fileInput.value = "";
   }
@@ -492,7 +807,24 @@ elements.listView.addEventListener("click", () => {
   writeLocalValue(VIEW_KEY, state.view);
   render();
 });
+elements.catalogTab.addEventListener("click", () => setMode("catalog"));
+elements.periodicalsTab.addEventListener("click", () => setMode("periodicals"));
+for (const tab of [elements.catalogTab, elements.periodicalsTab]) {
+  tab.addEventListener("keydown", (event) => {
+    if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+    event.preventDefault();
+    const showPeriodicals = event.key === "ArrowRight" || event.key === "End";
+    setMode(showPeriodicals ? "periodicals" : "catalog", { focus: true });
+  });
+}
+for (const button of elements.periodicalFilters) {
+  button.addEventListener("click", () => {
+    state.periodicalFilter = button.dataset.periodicalFilter;
+    renderPeriodicals();
+  });
+}
 elements.importButton.addEventListener("click", () => elements.fileInput.click());
+elements.heroImportButton.addEventListener("click", () => elements.fileInput.click());
 elements.fileInput.addEventListener("change", () => {
   const [file] = elements.fileInput.files;
   if (file) prepareImport(file);
@@ -509,12 +841,14 @@ elements.mergeImport.addEventListener("click", () => completeImport("merge"));
 document.addEventListener("keydown", (event) => {
   if ((event.metaKey || event.ctrlKey) && event.key.toLocaleLowerCase() === "k") {
     event.preventDefault();
+    setMode("catalog");
     elements.search.focus();
   }
 });
 
 initialize().catch((error) => {
   elements.grid.setAttribute("aria-busy", "false");
+  elements.periodicalGrid.setAttribute("aria-busy", "false");
   elements.resultsCount.textContent = "Nie udało się uruchomić katalogu.";
   showToast(error.message, true);
 });

@@ -1,0 +1,26 @@
+{
+  "name": "Półka — katalog książek i prasy",
+  "short_name": "Półka",
+  "description": "Prywatny katalog książek i prasy przechowywany lokalnie w przeglądarce.",
+  "lang": "pl",
+  "id": "./",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f4eddf",
+  "theme_color": "#f4eddf",
+  "icons": [
+    {
+      "src": "./assets/app-icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "./assets/app-icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
