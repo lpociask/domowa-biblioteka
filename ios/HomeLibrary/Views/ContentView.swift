@@ -267,6 +267,10 @@ struct ContentView: View {
             if addItemRoute == nil {
                 addItemRoute = .manual
             }
+        case "add-scan":
+            if addItemRoute == nil {
+                addItemRoute = .scanner
+            }
         case "periodical-overview":
             if !showingPeriodicalOverview, hasPeriodicals {
                 showingPeriodicalOverview = true

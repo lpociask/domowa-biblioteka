@@ -4,6 +4,7 @@ import UIKit
 
 struct AddItemFlow: View {
     private enum Step {
+        case shelfSetup
         case scanner
         case form
         case saved
@@ -110,8 +111,25 @@ struct AddItemFlow: View {
         pilotMetricsStore: PilotMetricsStore? = nil,
         onMutation: (() -> Void)? = nil
     ) {
-        _step = State(initialValue: startWithScanner ? .scanner : .form)
+        _step = State(initialValue: startWithScanner ? .shelfSetup : .form)
         _serialModeEnabled = State(initialValue: startWithScanner)
+#if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("-ui-periodical-fixture") {
+            _step = State(initialValue: .form)
+            _serialModeEnabled = State(initialValue: true)
+            _publicationType = State(initialValue: .periodical)
+            _title = State(initialValue: "Monocle")
+            _language = State(initialValue: "en")
+            _issn = State(initialValue: "1753-2434")
+            _ean = State(initialValue: "9771753243008")
+            _barcode = State(initialValue: "9771753243008+05")
+            _eanSupplement = State(initialValue: "05")
+            _catalogingSession = State(initialValue: CatalogingSession(
+                locationText: "Dom / Salon / Stolik"
+            ))
+            _metadataSource = State(initialValue: "collection")
+        }
+#endif
         let lookupObserver: BookMetadataLookupObserver
         if let pilotMetricsStore {
             lookupObserver = .recording(in: pilotMetricsStore)
@@ -131,6 +149,8 @@ struct AddItemFlow: View {
                 PaperBackground()
 
                 switch step {
+                case .shelfSetup:
+                    shelfSetup
                 case .scanner:
                     scanner
                 case .form:
@@ -167,7 +187,9 @@ struct AddItemFlow: View {
         .onAppear {
             guard !didStartInitialPilotAttempt else { return }
             didStartInitialPilotAttempt = true
-            startPilotAttemptIfNeeded()
+            if step != .shelfSetup {
+                startPilotAttemptIfNeeded()
+            }
         }
         .onChange(of: scenePhase) { _, newPhase in
             if newPhase == .active {
@@ -201,24 +223,106 @@ struct AddItemFlow: View {
         }
     }
 
+    private var shelfSetup: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: LibrarySpacing.xLarge) {
+                LibraryMasthead(
+                    title: dynamicTypeSize.isAccessibilitySize ? "Półka" : "Wybierz półkę",
+                    eyebrow: dynamicTypeSize.isAccessibilitySize ? "SESJA · 01" : "SESJA PÓŁKI · 01/03",
+                    subtitle: dynamicTypeSize.isAccessibilitySize
+                        ? nil
+                        : "Każda kolejna publikacja trafi w to miejsce, dopóki go nie zmienisz.",
+                    compact: true,
+                    constrainAccessibilityHeight: true
+                )
+
+                if !dynamicTypeSize.isAccessibilitySize {
+                    EditorialStatusBand(
+                        title: "Najpierw miejsce, potem skan",
+                        message: "Wpisz drogę od pomieszczenia do półki. Dzięki temu nie trzeba uzupełniać lokalizacji przy każdej książce ani gazecie.",
+                        icon: "books.vertical"
+                    )
+                }
+
+                VStack(alignment: .leading, spacing: LibrarySpacing.medium) {
+                    if !dynamicTypeSize.isAccessibilitySize {
+                        EditorialSectionHeader(title: "Bieżąca lokalizacja", value: "WYMAGANA")
+                    }
+
+                    EditorialLabeledTextField(
+                        label: "Półka dla tej sesji",
+                        text: locationTextBinding,
+                        prompt: "Gabinet / Regał 2 / Półka 3",
+                        submitLabel: .continue,
+                        accessibilityIdentifier: "addItem.shelfLocation"
+                    )
+                    .textInputAutocapitalization(.words)
+                    .onSubmit(confirmShelfAndScan)
+                    .accessibilityHint("Ta lokalizacja zostanie zachowana dla kolejnych publikacji w sesji.")
+                }
+
+                shelfStartButton
+                recentLocationChoices
+
+                Text(dynamicTypeSize.isAccessibilitySize
+                    ? "Półkę zmienisz później na skanerze."
+                    : "Lokalizację można zmienić bezpośrednio z ekranu skanera. Zmiana dotyczy następnych zapisów w tej sesji.")
+                    .font(.system(.footnote, design: .serif))
+                    .lineSpacing(3)
+                    .foregroundStyle(LibraryPalette.mutedInk)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(.vertical, LibrarySpacing.large)
+            .editorialPage(width: 720)
+        }
+        .scrollDismissesKeyboard(.interactively)
+        .navigationTitle("Bieżąca półka")
+        .accessibilityIdentifier("addItem.shelfSetup")
+    }
+
+    private var shelfStartButton: some View {
+        EditorialPrimaryButton(
+            title: dynamicTypeSize.isAccessibilitySize ? "Dalej" : "Rozpocznij skanowanie",
+            icon: "barcode.viewfinder",
+            action: confirmShelfAndScan
+        )
+        .disabled(!CatalogingReadiness.canStartShelfSession(
+            locationText: catalogingSession.locationText
+        ))
+        .opacity(CatalogingReadiness.canStartShelfSession(
+            locationText: catalogingSession.locationText
+        ) ? 1 : 0.5)
+        .accessibilityIdentifier("addItem.shelfStart")
+        .accessibilityLabel("Rozpocznij skanowanie")
+    }
+
     private var scanner: some View {
         ScannerStep(
             currentLocation: currentLocationDisplay,
             recentSaveTitle: recentSaveNotice?.title,
             initiallySuppressedCode: recentSaveNotice?.suppressedCode,
-            onUndoRecentSave: recentSaveNotice == nil ? nil : undoRecentSave
+            onUndoRecentSave: recentSaveNotice == nil ? nil : undoRecentSave,
+            onChangeLocation: presentShelfSetupFromScanner
         ) { value, cameFromCamera in
             startPilotAttemptIfNeeded()
             pilotDuplicateDecisionRecorded = false
             isSaving = false
             let pilotValuesBeforeApply = currentPilotValues(for: Self.pilotIdentifierFields)
+            let pilotSeriesValuesBeforeApply = currentPilotValues(for: Self.pilotMetadataFields)
             let scannedISBN = apply(identifier: value)
+            let filledKnownPeriodicalSeries = applyKnownPeriodicalSeriesPrefill()
             _ = pilotAttemptTracker.markRecognition()
             capturePilotAutomaticChanges(
                 in: Self.pilotIdentifierFields,
                 from: pilotValuesBeforeApply
             )
-            metadataSource = cameFromCamera ? "scan" : "manual"
+            capturePilotAutomaticChanges(
+                in: Self.pilotMetadataFields,
+                from: pilotSeriesValuesBeforeApply
+            )
+            metadataSource = filledKnownPeriodicalSeries
+                ? "collection"
+                : (cameFromCamera ? "scan" : "manual")
             step = .form
             if let scannedISBN {
                 lookupMetadata(for: scannedISBN)
@@ -249,6 +353,11 @@ struct AddItemFlow: View {
                     metadataStatus
                 }
 
+                if publicationType == .periodical, duplicateMatch == nil {
+                    periodicalCaptureStatus
+                    periodicalOCRAction
+                }
+
                 if let duplicateMatch {
                     EditorialStatusBand(
                         title: duplicateTitle(for: duplicateMatch),
@@ -275,13 +384,13 @@ struct AddItemFlow: View {
                     mainDataSection
                 }
 
+                if publicationType == .periodical, duplicateMatch == nil {
+                    periodicalSection
+                }
+
                 coverPreviewSection
 
                 locationSection
-
-                if publicationType == .periodical {
-                    periodicalSection
-                }
 
                 if duplicateMatch == nil {
                     moreDataSection
@@ -322,6 +431,42 @@ struct AddItemFlow: View {
                 }
             )
         }
+    }
+
+    private var periodicalCaptureStatus: some View {
+        let titleIsEmpty = title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let statusTitle = titleIsEmpty
+            ? (hasValidPeriodicalEAN ? "Rozpoznano prasę — wpisz tytuł" : "Wpisz tytuł prasy")
+            : "Rozpoznano prasę"
+        let statusMessage: String
+        if titleIsEmpty, hasValidPeriodicalEAN {
+            statusMessage = "Kod 977 wskazuje serię, ale katalogi ISBN nie uzupełniają tytułów prasy. Wpisz tytuł, a potem potwierdź numer lub datę z okładki."
+        } else if titleIsEmpty {
+            statusMessage = "Wpisz tytuł, a potem potwierdź konkretny numer lub datę z okładki."
+        } else if metadataSource == "collection" {
+            statusMessage = "Tytuł uzupełniono z Twojej kolekcji. Potwierdź konkretny numer lub datę z okładki przed zapisem."
+        } else {
+            statusMessage = "Tytuł jest gotowy. Potwierdź konkretny numer lub datę z okładki przed zapisem."
+        }
+
+        return EditorialStatusBand(
+            title: statusTitle,
+            message: statusMessage,
+            icon: "newspaper",
+            accent: LibraryPalette.orangeText
+        )
+    }
+
+    private var periodicalOCRAction: some View {
+        EditorialActionRow(
+            title: "Odczytaj numer z okładki",
+            detail: "Zrób zdjęcie; OCR lokalnie zaproponuje numer, tom i datę.",
+            icon: "text.viewfinder",
+            accent: LibraryPalette.orangeText
+        ) {
+            showsPeriodicalCoverOCR = true
+        }
+        .accessibilityIdentifier("addItem.periodicalCoverOCR")
     }
 
     private var isManualEntryIdle: Bool {
@@ -397,39 +542,15 @@ struct AddItemFlow: View {
             )
             .textInputAutocapitalization(.words)
 
-            if !recentLocations.isEmpty {
-                VStack(alignment: .leading, spacing: 0) {
-                    Text("OSTATNIE MIEJSCA")
-                        .font(.caption2.weight(.bold))
-                        .tracking(1.35)
-                        .foregroundStyle(LibraryPalette.mutedInk)
-                        .padding(.bottom, LibrarySpacing.xSmall)
-
-                    ForEach(recentLocations, id: \.self) { location in
-                        Button {
-                            catalogingSession.updateLocationText(location)
-                        } label: {
-                            HStack(spacing: LibrarySpacing.small) {
-                                Text(location.replacingOccurrences(of: "/", with: "›"))
-                                    .font(.footnote)
-                                    .multilineTextAlignment(.leading)
-                                Spacer(minLength: LibrarySpacing.small)
-                                Image(systemName: LocationPath(catalogingSession.locationText) == LocationPath(location) ? "checkmark" : "arrow.turn.down.left")
-                                    .foregroundStyle(LibraryPalette.orangeText)
-                                    .accessibilityHidden(true)
-                            }
-                            .foregroundStyle(LibraryPalette.ink)
-                            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
-                            .overlay(alignment: .top) {
-                                Rectangle().fill(LibraryPalette.rule).frame(height: 1)
-                            }
-                            .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel("Użyj lokalizacji: \(location)")
-                    }
-                }
+            if serialModeEnabled, LocationPath(catalogingSession.locationText).isEmpty {
+                EditorialStatusBand(
+                    title: "Wybierz półkę",
+                    message: CatalogingReadinessFailure.missingShelf.message,
+                    icon: "exclamationmark.triangle"
+                )
             }
+
+            recentLocationChoices
 
             EditorialAxisField(
                 label: "Notatki o egzemplarzu",
@@ -442,22 +563,12 @@ struct AddItemFlow: View {
 
     private var periodicalSection: some View {
         VStack(alignment: .leading, spacing: LibrarySpacing.medium) {
-            EditorialSectionHeader(title: "Konkretny numer", value: "PRASA")
+            EditorialSectionHeader(title: "Konkretny numer", value: "WYMAGANY")
 
             Text("ISSN opisuje cały tytuł prasowy. Numer lub data rozróżniają egzemplarz, który trzymasz w ręku.")
                 .font(.system(.body, design: .serif))
                 .lineSpacing(3)
                 .foregroundStyle(LibraryPalette.mutedInk)
-
-            EditorialActionRow(
-                title: "Odczytaj numer z okładki",
-                detail: "Zrób zdjęcie; OCR lokalnie zaproponuje numer, tom i datę.",
-                icon: "text.viewfinder",
-                accent: LibraryPalette.orangeText
-            ) {
-                showsPeriodicalCoverOCR = true
-            }
-            .accessibilityIdentifier("addItem.periodicalCoverOCR")
 
             EditorialLabeledTextField(
                 label: "Dodatek EAN (2 lub 5 cyfr)",
@@ -465,6 +576,14 @@ struct AddItemFlow: View {
                 prompt: "np. 05 albo 00123",
                 keyboardType: .numberPad
             )
+
+            if !cleanEANSupplement.isEmpty, !isValidEANSupplement {
+                EditorialStatusBand(
+                    title: "Sprawdź dodatek EAN",
+                    message: "Dodatek musi zawierać dokładnie 2 albo 5 cyfr i występować razem z prawidłowym kodem prasy 977.",
+                    icon: "exclamationmark.triangle"
+                )
+            }
 
             if isValidEANSupplement {
                 EditorialStatusBand(
@@ -923,6 +1042,11 @@ struct AddItemFlow: View {
         eanSupplement.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    private var hasValidPeriodicalEAN: Bool {
+        let parsed = PublicationIdentifierParser.parse(ean)
+        return parsed.isValid && parsed.kind == .ean13 && parsed.normalized.hasPrefix("977")
+    }
+
     private var isValidEANSupplement: Bool {
         let supplement = cleanEANSupplement
         guard supplement.count == 2 || supplement.count == 5,
@@ -960,7 +1084,16 @@ struct AddItemFlow: View {
     }
 
     private var canSave: Bool {
-        duplicateMatch != nil || !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        CatalogingReadiness.failure(
+            serialMode: serialModeEnabled,
+            locationText: catalogingSession.locationText,
+            publicationType: publicationType,
+            title: title,
+            hasExistingPublicationMatch: duplicateMatch != nil,
+            issueNumber: issueNumber,
+            issueDate: issueDate,
+            eanSupplement: isValidEANSupplement ? cleanEANSupplement : ""
+        ) == nil
     }
 
     private var saveButtonTitle: String {
@@ -991,6 +1124,72 @@ struct AddItemFlow: View {
         }
         .prefix(3)
         .map { $0 }
+    }
+
+    @ViewBuilder
+    private var recentLocationChoices: some View {
+        if !recentLocations.isEmpty {
+            VStack(alignment: .leading, spacing: 0) {
+                Text("OSTATNIE MIEJSCA")
+                    .font(.caption2.weight(.bold))
+                    .tracking(1.35)
+                    .foregroundStyle(LibraryPalette.mutedInk)
+                    .padding(.bottom, LibrarySpacing.xSmall)
+
+                ForEach(recentLocations, id: \.self) { location in
+                    let isSelected = LocationPath(catalogingSession.locationText) == LocationPath(location)
+                    Button {
+                        catalogingSession.updateLocationText(location)
+                    } label: {
+                        HStack(spacing: LibrarySpacing.small) {
+                            Text(LocationPath(location).display)
+                                .font(.footnote)
+                                .multilineTextAlignment(.leading)
+                            Spacer(minLength: LibrarySpacing.small)
+                            Image(systemName: isSelected ? "checkmark" : "arrow.turn.down.left")
+                                .foregroundStyle(LibraryPalette.orangeText)
+                                .accessibilityHidden(true)
+                        }
+                        .foregroundStyle(LibraryPalette.ink)
+                        .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                        .overlay(alignment: .top) {
+                            Rectangle().fill(LibraryPalette.rule).frame(height: 1)
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Użyj lokalizacji: \(LocationPath(location).display)")
+                    .accessibilityAddTraits(isSelected ? .isSelected : [])
+                }
+            }
+        }
+    }
+
+    private func confirmShelfAndScan() {
+        let previousLocation = catalogingSession.canonicalLocation.canonical
+        let location = catalogingSession.commitLocation()
+        guard !location.isEmpty else {
+            validationMessage = CatalogingReadinessFailure.missingShelf.message
+            return
+        }
+        validationMessage = nil
+        startPilotAttemptIfNeeded()
+        // The pilot distinguishes a shelf selected for the first item from a
+        // location retained by the serial session. Starting the timer after
+        // this setup screen must not turn a fresh/changed shelf into "reused".
+        pilotAttemptStartingLocation = previousLocation
+        step = .scanner
+        UIAccessibility.post(
+            notification: .announcement,
+            argument: "Bieżąca półka: \(location.display). Możesz skanować."
+        )
+    }
+
+    private func presentShelfSetupFromScanner() {
+        // If a scan/edit attempt is already running, changing its shelf is part
+        // of that same attempt. A ready serial slot remains unstarted until the
+        // user confirms the new shelf and returns to the camera.
+        step = .shelfSetup
     }
 
     private func duplicateMessage(for match: ExistingPublicationMatch) -> String {
@@ -1045,6 +1244,17 @@ struct AddItemFlow: View {
         if issn.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             issn = publication.issn
         }
+        // The previous match identified a concrete issue. Reusing its
+        // discriminator while forcing a new Publication would create a second
+        // record of the same issue, so the user must confirm fresh issue data.
+        let clearedIdentity = PeriodicalIssueDraftReset.clearedIdentity(
+            retainingSeriesEAN: ean
+        )
+        eanSupplement = clearedIdentity.eanSupplement
+        issueNumber = clearedIdentity.issueNumber
+        issueVolume = clearedIdentity.issueVolume
+        issueDate = clearedIdentity.issueDate
+        barcode = clearedIdentity.barcode
         // A new issue may have a different cover even when the series is the same.
         coverURLString = ""
         coverSource = ""
@@ -1132,10 +1342,11 @@ struct AddItemFlow: View {
         isSaving = false
         serialModeEnabled = startWithScanner
         clearPublicationFields(preserveCopyFields: false)
-        // Choosing an explicit next action is the first real interaction for
-        // this object, so its timing can begin immediately.
-        resetPilotAttemptForNextPublication(startImmediately: true)
-        step = startWithScanner ? .scanner : .form
+        let needsShelf = startWithScanner && LocationPath(catalogingSession.locationText).isEmpty
+        // Wybór pustej sesji półki jeszcze nie jest próbą katalogowania.
+        // Pomiar zaczyna się po zatwierdzeniu miejsca albo przy wejściu ręcznym.
+        resetPilotAttemptForNextPublication(startImmediately: !needsShelf)
+        step = needsShelf ? .shelfSetup : (startWithScanner ? .scanner : .form)
     }
 
     private func clearPublicationFields(preserveCopyFields: Bool) {
@@ -1203,6 +1414,44 @@ struct AddItemFlow: View {
             break
         }
         return nil
+    }
+
+    /// Reuses only the series-level description from a periodical that is
+    /// already in the user's collection. A new issue never inherits a number,
+    /// date, volume, barcode or cover from the older issue.
+    @discardableResult
+    private func applyKnownPeriodicalSeriesPrefill() -> Bool {
+        guard publicationType == .periodical,
+              let prefill = PeriodicalSeriesPrefillResolver.prefill(
+                in: existingItems,
+                incomingISSN: issn,
+                incomingEAN: ean
+              ) else {
+            return false
+        }
+
+        var didApply = false
+        func fill(_ current: inout String, with value: String) {
+            guard current.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                  !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                return
+            }
+            current = value
+            didApply = true
+        }
+
+        fill(&title, with: prefill.title)
+        fill(&subtitle, with: prefill.subtitle)
+        fill(&authors, with: prefill.authors)
+        fill(&publisher, with: prefill.publisher)
+        if language.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || language == "pl" {
+            let incomingLanguage = prefill.language.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !incomingLanguage.isEmpty, language != incomingLanguage {
+                language = incomingLanguage
+                didApply = true
+            }
+        }
+        return didApply
     }
 
     private func lookupMetadata(for isbn: String) {
@@ -1376,8 +1625,17 @@ struct AddItemFlow: View {
                 locationPath: LocationPath(catalogingSession.locationText)
             )
 
-        guard match != nil || !cleanTitle.isEmpty else {
-            validationMessage = "Tytuł jest wymagany."
+        if let readinessFailure = CatalogingReadiness.failure(
+            serialMode: serialModeEnabled,
+            locationText: catalogingSession.locationText,
+            publicationType: publicationType,
+            title: cleanTitle,
+            hasExistingPublicationMatch: match != nil,
+            issueNumber: issueNumber,
+            issueDate: issueDate,
+            eanSupplement: supplement
+        ) {
+            validationMessage = readinessFailure.message
             return
         }
 

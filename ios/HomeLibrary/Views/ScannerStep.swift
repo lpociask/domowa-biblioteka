@@ -8,6 +8,7 @@ struct ScannerStep: View {
     let recentSaveTitle: String?
     let initiallySuppressedCode: String?
     let onUndoRecentSave: (() -> Void)?
+    let onChangeLocation: (() -> Void)?
     let onCode: (_ value: String, _ cameFromCamera: Bool) -> Void
 
     @State private var manualCode = ""
@@ -21,6 +22,7 @@ struct ScannerStep: View {
         recentSaveTitle: String? = nil,
         initiallySuppressedCode: String? = nil,
         onUndoRecentSave: (() -> Void)? = nil,
+        onChangeLocation: (() -> Void)? = nil,
         onCode: @escaping (_ value: String, _ cameFromCamera: Bool) -> Void
     ) {
         let cleanLocation = currentLocation?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -34,7 +36,12 @@ struct ScannerStep: View {
             self.initiallySuppressedCode = nil
         }
         self.onUndoRecentSave = onUndoRecentSave
+        self.onChangeLocation = onChangeLocation
         self.onCode = onCode
+    }
+
+    var showsLocationChangeAction: Bool {
+        currentLocation != nil && onChangeLocation != nil
     }
 
     private var cameraScannerAvailable: Bool {
@@ -216,31 +223,54 @@ struct ScannerStep: View {
             }
 
             if let currentLocation {
-                HStack(alignment: .top, spacing: LibrarySpacing.small) {
-                    Image(systemName: "mappin")
-                        .font(.caption.weight(.bold))
-                        .foregroundStyle(LibraryPalette.orangeText)
-                        .frame(width: 24, height: 24)
-                        .accessibilityHidden(true)
+                HStack(alignment: .center, spacing: LibrarySpacing.small) {
+                    HStack(alignment: .top, spacing: LibrarySpacing.small) {
+                        Image(systemName: "mappin")
+                            .font(.caption.weight(.bold))
+                            .foregroundStyle(LibraryPalette.orangeText)
+                            .frame(width: 24, height: 24)
+                            .accessibilityHidden(true)
 
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text("BIEŻĄCA PÓŁKA")
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text("BIEŻĄCA PÓŁKA")
+                                .font(.caption2.weight(.bold))
+                                .tracking(1.35)
+                            Text(currentLocation)
+                                .font(.system(.footnote, design: .serif, weight: .semibold))
+                                .foregroundStyle(LibraryPalette.mutedInk)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .accessibilityElement(children: .combine)
+                    .accessibilityLabel("Bieżąca półka")
+                    .accessibilityValue(currentLocation)
+                    .accessibilityIdentifier("scanner.currentLocation")
+
+                    if showsLocationChangeAction, let onChangeLocation {
+                        Button(action: onChangeLocation) {
+                            HStack(spacing: 5) {
+                                Text("Zmień")
+                                Image(systemName: "chevron.right")
+                                    .font(.caption2.weight(.bold))
+                                    .accessibilityHidden(true)
+                            }
                             .font(.caption2.weight(.bold))
-                            .tracking(1.35)
-                        Text(currentLocation)
-                            .font(.system(.footnote, design: .serif, weight: .semibold))
-                            .foregroundStyle(LibraryPalette.mutedInk)
-                            .fixedSize(horizontal: false, vertical: true)
+                            .tracking(1.05)
+                            .foregroundStyle(LibraryPalette.orangeText)
+                            .frame(minWidth: 68, minHeight: 44)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Zmień bieżącą półkę")
+                        .accessibilityHint("Otwiera wybór lokalizacji dla kolejnych publikacji.")
+                        .accessibilityIdentifier("scanner.changeLocation")
                     }
                 }
                 .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
                 .overlay(alignment: .bottom) {
                     Rectangle().fill(LibraryPalette.rule).frame(height: 1)
                 }
-                .accessibilityElement(children: .combine)
-                .accessibilityLabel("Bieżąca półka")
-                .accessibilityValue(currentLocation)
-                .accessibilityIdentifier("scanner.currentLocation")
             }
 
             Text("KOD RĘCZNIE")
