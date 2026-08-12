@@ -2,11 +2,14 @@ import Foundation
 
 enum PeriodicalMetadataSource: String, Codable, Equatable, Sendable {
     case nationalLibrary = "bn"
+    case issnPortal = "issnPortal"
 
     var displayName: String {
         switch self {
         case .nationalLibrary:
             "Biblioteki Narodowej"
+        case .issnPortal:
+            "ISSN Portal"
         }
     }
 }
@@ -34,6 +37,63 @@ protocol PeriodicalMetadataProviding: Sendable {
 
 enum PeriodicalMetadataLookupError: Error, Equatable {
     case invalidIdentifier
+}
+
+/// Tries exact-ISSN services in order. A provider outage does not block a
+/// later catalog, while cancellation is always terminal. Production keeps BN
+/// first and uses the freely available ISSN Portal basic record as fallback.
+struct CascadingPeriodicalMetadataProvider: PeriodicalMetadataProviding {
+    private let providers: [any PeriodicalMetadataProviding]
+
+    init(providers: [any PeriodicalMetadataProviding]) {
+        self.providers = providers
+    }
+
+    static func production(
+        observer: BookMetadataLookupObserver = .disabled
+    ) -> Self {
+        Self(providers: [
+            BNPeriodicalMetadataService(observer: observer),
+            ISSNPortalPeriodicalMetadataService(observer: observer)
+        ])
+    }
+
+    func lookup(identifier rawIdentifier: String) async throws -> PeriodicalMetadata? {
+        guard let requestedISSN = PeriodicalIdentifierNormalizer.canonicalISSN(
+            from: rawIdentifier
+        ) else {
+            throw PeriodicalMetadataLookupError.invalidIdentifier
+        }
+
+        try Task.checkCancellation()
+        var lastError: Error?
+
+        for provider in providers {
+            try Task.checkCancellation()
+            do {
+                let metadata = try await provider.lookup(identifier: requestedISSN)
+                try Task.checkCancellation()
+                if let metadata,
+                   metadata.hasUsefulData,
+                   PeriodicalIdentifierNormalizer.canonicalISSN(
+                       from: metadata.issn
+                   ) == requestedISSN {
+                    return metadata
+                }
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch let error as URLError where error.code == .cancelled {
+                throw CancellationError()
+            } catch {
+                if Task.isCancelled { throw CancellationError() }
+                lastError = error
+            }
+        }
+
+        try Task.checkCancellation()
+        if let lastError { throw lastError }
+        return nil
+    }
 }
 
 /// Strict normalization shared by remote periodical lookups. An EAN-977 is

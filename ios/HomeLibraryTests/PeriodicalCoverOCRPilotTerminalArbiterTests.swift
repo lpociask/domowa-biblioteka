@@ -2,6 +2,12 @@ import XCTest
 @testable import HomeLibrary
 
 final class PeriodicalCoverOCRPilotTerminalArbiterTests: XCTestCase {
+    func testSelectionTreatsTitleAndLocalCoverAsUsefulValues() {
+        XCTAssertFalse(PeriodicalCoverOCRSelection(title: "Rouleur").isEmpty)
+        XCTAssertFalse(PeriodicalCoverOCRSelection(coverImageData: Data([0xFF, 0xD8])).isEmpty)
+        XCTAssertTrue(PeriodicalCoverOCRSelection().isEmpty)
+    }
+
     func testApplyWinsOverFollowingDisappearAndCancelCallbacks() {
         var arbiter = PeriodicalCoverOCRPilotTerminalArbiter()
         arbiter.observe(.processing)

@@ -58,6 +58,8 @@ struct PilotCatalogMetric: Codable, Equatable, Sendable {
 enum PilotLookupSource: String, Codable, CaseIterable, Sendable {
     case nationalLibrary
     case openLibrary
+    case libraryOfCongress
+    case issnPortal
     case metadataCache
 }
 

@@ -23,6 +23,7 @@ struct CatalogItemLifecyclePublicationSnapshot: Equatable {
     let metadataSource: String
     let coverURLString: String
     let coverSource: String
+    let coverImageData: Data?
     let createdAt: Date
     let updatedAt: Date
 }
@@ -348,6 +349,7 @@ struct CatalogItemLifecycleService {
             metadataSource: publication.metadataSource,
             coverURLString: publication.coverURLString,
             coverSource: publication.coverSource,
+            coverImageData: publication.coverImageData,
             createdAt: publication.createdAt,
             updatedAt: publication.updatedAt
         )
@@ -385,6 +387,7 @@ struct CatalogItemLifecycleService {
             metadataSource: snapshot.metadataSource,
             coverURLString: snapshot.coverURLString,
             coverSource: snapshot.coverSource,
+            coverImageData: snapshot.coverImageData,
             createdAt: snapshot.createdAt,
             updatedAt: snapshot.updatedAt
         )

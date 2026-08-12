@@ -22,6 +22,11 @@ enum PublicationType: String, Codable, CaseIterable, Identifiable {
     }
 }
 
+enum PublicationCoverAsset: Equatable, Sendable {
+    case local(Data)
+    case remote(URL)
+}
+
 @Model
 final class Publication {
     var id: UUID
@@ -49,6 +54,9 @@ final class Publication {
     var coverURLString: String = ""
     /// Pochodzenie okładki niezależne od źródła pozostałych metadanych.
     var coverSource: String = ""
+    /// Sanitized local JPEG. External storage keeps the SwiftData row small and
+    /// lets the persistent store manage the binary asset transactionally.
+    @Attribute(.externalStorage) var coverImageData: Data? = nil
     var createdAt: Date
     var updatedAt: Date
 
@@ -72,6 +80,7 @@ final class Publication {
         metadataSource: String = "manual",
         coverURLString: String = "",
         coverSource: String = "",
+        coverImageData: Data? = nil,
         createdAt: Date = .now,
         updatedAt: Date = .now
     ) {
@@ -95,6 +104,7 @@ final class Publication {
         self.metadataSource = metadataSource
         self.coverURLString = coverURLString
         self.coverSource = coverSource
+        self.coverImageData = coverImageData.flatMap { $0.isEmpty ? nil : $0 }
         self.createdAt = createdAt
         self.updatedAt = updatedAt
     }
@@ -114,6 +124,26 @@ final class Publication {
     var exportID: String {
         let clean = externalID.trimmingCharacters(in: .whitespacesAndNewlines)
         return clean.isEmpty ? id.uuidString : clean
+    }
+
+    var resolvedCoverImageData: Data? {
+        coverImageData.flatMap { $0.isEmpty ? nil : $0 }
+    }
+
+    /// Local data always wins for on-device presentation. A remote reference
+    /// remains available as a fallback after the local image is removed.
+    var resolvedCoverAsset: PublicationCoverAsset? {
+        if let data = resolvedCoverImageData {
+            return .local(data)
+        }
+        if let url = resolvedCoverURL {
+            return .remote(url)
+        }
+        return nil
+    }
+
+    var hasResolvedCover: Bool {
+        resolvedCoverAsset != nil
     }
 
     /// Uses an explicitly accepted URL first. Older records with only an ISBN

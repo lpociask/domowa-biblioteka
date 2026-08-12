@@ -265,6 +265,62 @@ final class CatalogingServiceTests: XCTestCase {
         XCTAssertEqual(publication.coverSource, "openlibrary")
     }
 
+    func testNewPublicationPersistsLocalCoverAndDuplicateNeverOverwritesIt() throws {
+        let context = try makeContext()
+        let service = CatalogingService(modelContext: context)
+        let acceptedCover = Data([0xFF, 0xD8, 0x01, 0xFF, 0xD9])
+        let laterCover = Data([0xFF, 0xD8, 0x02, 0xFF, 0xD9])
+
+        let first = try service.save(CatalogingSaveRequest(
+            type: .book,
+            title: "Solaris",
+            isbn13: "9788308068854",
+            coverImageData: acceptedCover,
+            locationPathText: "Gabinet"
+        ))
+        let second = try service.save(CatalogingSaveRequest(
+            type: .book,
+            title: "Solaris",
+            isbn13: "9788308068854",
+            coverImageData: laterCover,
+            locationPathText: "Salon"
+        ))
+
+        XCTAssertFalse(first.usedExisting)
+        XCTAssertTrue(second.usedExisting)
+        XCTAssertEqual(first.publication.coverImageData, acceptedCover)
+        XCTAssertEqual(second.publication.coverImageData, acceptedCover)
+        XCTAssertEqual(
+            second.publication.resolvedCoverAsset,
+            .local(acceptedCover)
+        )
+        XCTAssertTrue(second.publication.hasResolvedCover)
+    }
+
+    func testDuplicateFillsOnlyMissingLocalCover() throws {
+        let context = try makeContext()
+        let service = CatalogingService(modelContext: context)
+        let first = try service.save(CatalogingSaveRequest(
+            type: .book,
+            title: "Solaris",
+            isbn13: "9788308068854",
+            locationPathText: "Gabinet"
+        ))
+        let acceptedCover = Data([0xFF, 0xD8, 0x03, 0xFF, 0xD9])
+        XCTAssertNil(first.publication.coverImageData)
+
+        let second = try service.save(CatalogingSaveRequest(
+            type: .book,
+            title: "Solaris",
+            isbn13: "9788308068854",
+            coverImageData: acceptedCover,
+            locationPathText: "Salon"
+        ))
+
+        XCTAssertTrue(second.usedExisting)
+        XCTAssertEqual(second.publication.coverImageData, acceptedCover)
+    }
+
     func testSamePeriodicalIssueWithDatePresentOnOnlyOneCopyUsesExistingPublication() throws {
         let context = try makeContext()
         let service = CatalogingService(modelContext: context)

@@ -75,6 +75,8 @@ enum PilotDashboardPresenter {
         switch source {
         case .nationalLibrary: "BN"
         case .openLibrary: "Open Library"
+        case .libraryOfCongress: "Library of Congress"
+        case .issnPortal: "ISSN Portal"
         case .metadataCache: "Cache"
         }
     }

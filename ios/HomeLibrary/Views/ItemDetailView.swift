@@ -71,7 +71,7 @@ struct ItemDetailView: View {
     @ViewBuilder
     private var publicationHeader: some View {
         if let publication = item.publication {
-            if publication.resolvedCoverURL != nil, usesSideBySideHeader {
+            if publication.hasResolvedCover, usesSideBySideHeader {
                 HStack(alignment: .top, spacing: LibrarySpacing.large) {
                     masthead(for: publication)
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -94,7 +94,7 @@ struct ItemDetailView: View {
     private var stackedPublicationCover: some View {
         if !usesSideBySideHeader,
            let publication = item.publication,
-           publication.resolvedCoverURL != nil {
+           publication.hasResolvedCover {
             publicationCover(for: publication)
                 .frame(maxWidth: .infinity, alignment: .center)
         }
@@ -115,6 +115,7 @@ struct ItemDetailView: View {
 
     private func publicationCover(for publication: Publication) -> some View {
         PublicationCoverView(
+            localData: publication.resolvedCoverImageData,
             url: publication.resolvedCoverURL,
             title: clean(publication.title) ?? "Bez tytułu",
             source: publication.resolvedCoverSource,
@@ -309,6 +310,12 @@ struct ItemDetailView: View {
             "Biblioteka Narodowa"
         case BookMetadataSource.openLibrary.rawValue:
             "Open Library"
+        case "libraryofcongress":
+            "Library of Congress"
+        case "issnportal":
+            "ISSN Portal"
+        case "ocr":
+            "Rozpoznanie z okładki"
         case "import":
             "Import kolekcji"
         case .some:

@@ -73,6 +73,7 @@ struct ContentView: View {
     @State private var mutationNotice: CatalogMutationNotice?
     @State private var exportDocument: CollectionJSONDocument?
     @State private var showingExporter = false
+    @State private var showingExportPhotoWarning = false
     @State private var showingImporter = false
     @State private var isImporting = false
     @State private var message: ExportMessage?
@@ -248,6 +249,18 @@ struct ContentView: View {
             onCompletion: handlePilotVerificationResult
         )
         .confirmationDialog(
+            "Eksport JSON nie zawiera własnych zdjęć",
+            isPresented: $showingExportPhotoWarning,
+            titleVisibility: .visible
+        ) {
+            Button("Eksportuj bez zdjęć") {
+                prepareExport()
+            }
+            Button("Anuluj", role: .cancel) {}
+        } message: {
+            Text("Opisy, identyfikatory i lokalizacje zostaną zapisane. Zdjęcia okładek pozostaną tylko w aplikacji na tym urządzeniu.")
+        }
+        .confirmationDialog(
             "Usunąć egzemplarz z kolekcji?",
             isPresented: deletionConfirmationBinding,
             titleVisibility: .visible,
@@ -354,7 +367,7 @@ struct ContentView: View {
                 Button { presentAddFlow(scanner: false) } label: {
                     Label("Dodaj ręcznie", systemImage: "square.and.pencil")
                 }
-                Button(action: prepareExport) {
+                Button(action: requestExport) {
                     Label("Eksportuj JSON", systemImage: "square.and.arrow.up")
                 }
                 .disabled(items.isEmpty)
@@ -707,6 +720,18 @@ struct ContentView: View {
         } catch {
             recordPilotTransfer(direction: .export, outcome: .failed)
             message = ExportMessage(title: "Nie udało się przygotować eksportu", details: error.localizedDescription)
+        }
+    }
+
+    private func requestExport() {
+        finishPilotSearchForNavigation()
+        if items.contains(where: { item in
+            guard let data = item.publication?.coverImageData else { return false }
+            return !data.isEmpty
+        }) {
+            showingExportPhotoWarning = true
+        } else {
+            prepareExport()
         }
     }
 
@@ -1173,10 +1198,10 @@ private struct CollectionCoverArtwork: View {
         ZStack {
             CollectionEditorialFallbackCover(publication: publication)
 
-            if let publication,
-               let coverURL = publication.resolvedCoverURL {
+            if let publication, publication.hasResolvedCover {
                 PublicationCoverView(
-                    url: coverURL,
+                    localData: publication.resolvedCoverImageData,
+                    url: publication.resolvedCoverURL,
                     title: publication.title,
                     source: publication.resolvedCoverSource,
                     mode: .collection
@@ -1326,10 +1351,11 @@ private struct PublicationRow: View {
             Button(action: openAction) {
                 HStack(alignment: .top, spacing: LibrarySpacing.small) {
                     if let publication = item.publication,
-                       let coverURL = publication.resolvedCoverURL,
+                       publication.hasResolvedCover,
                        !dynamicTypeSize.isAccessibilitySize {
                         PublicationCoverView(
-                            url: coverURL,
+                            localData: publication.resolvedCoverImageData,
+                            url: publication.resolvedCoverURL,
                             title: publication.title,
                             source: publication.resolvedCoverSource,
                             mode: .thumbnail

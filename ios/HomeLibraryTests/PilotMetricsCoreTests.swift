@@ -293,11 +293,13 @@ final class PilotMetricsCoreTests: XCTestCase {
             record(2, .lookup(PilotLookupMetric(source: .nationalLibrary, outcome: .notFound))),
             record(3, .lookup(PilotLookupMetric(source: .nationalLibrary, outcome: .failed))),
             record(4, .lookup(PilotLookupMetric(source: .nationalLibrary, outcome: .cancelled))),
-            record(5, .lookup(PilotLookupMetric(source: .metadataCache, outcome: .found))),
-            record(6, .lookup(PilotLookupMetric(source: .metadataCache, outcome: .notFound))),
-            record(7, .lookup(PilotLookupMetric(source: .metadataCache, outcome: .miss))),
-            record(8, .lookup(PilotLookupMetric(source: .metadataCache, outcome: .stale))),
-            record(9, .lookup(PilotLookupMetric(source: .metadataCache, outcome: .staleFallback)))
+            record(5, .lookup(PilotLookupMetric(source: .libraryOfCongress, outcome: .found))),
+            record(6, .lookup(PilotLookupMetric(source: .issnPortal, outcome: .notFound))),
+            record(7, .lookup(PilotLookupMetric(source: .metadataCache, outcome: .found))),
+            record(8, .lookup(PilotLookupMetric(source: .metadataCache, outcome: .notFound))),
+            record(9, .lookup(PilotLookupMetric(source: .metadataCache, outcome: .miss))),
+            record(10, .lookup(PilotLookupMetric(source: .metadataCache, outcome: .stale))),
+            record(11, .lookup(PilotLookupMetric(source: .metadataCache, outcome: .staleFallback)))
         ]
 
         let report = PilotReportBuilder.build(from: records)
@@ -306,6 +308,12 @@ final class PilotMetricsCoreTests: XCTestCase {
         )
         let openLibrary = try XCTUnwrap(
             report.lookups.first { $0.source == .openLibrary }
+        )
+        let libraryOfCongress = try XCTUnwrap(
+            report.lookups.first { $0.source == .libraryOfCongress }
+        )
+        let issnPortal = try XCTUnwrap(
+            report.lookups.first { $0.source == .issnPortal }
         )
         let cache = try XCTUnwrap(
             report.lookups.first { $0.source == .metadataCache }
@@ -323,6 +331,11 @@ final class PilotMetricsCoreTests: XCTestCase {
         XCTAssertEqual(openLibrary.attempts, 0)
         XCTAssertEqual(openLibrary.foundRate.denominator, 0)
         XCTAssertNil(openLibrary.foundRate.value)
+        XCTAssertEqual(libraryOfCongress.attempts, 1)
+        XCTAssertEqual(libraryOfCongress.foundRate.value, 1)
+        XCTAssertEqual(issnPortal.attempts, 1)
+        XCTAssertEqual(issnPortal.notFound, 1)
+        XCTAssertEqual(issnPortal.foundRate.value, 0)
         XCTAssertEqual(cache.attempts, 5)
         XCTAssertEqual(cache.found, 1)
         XCTAssertEqual(cache.notFound, 1)

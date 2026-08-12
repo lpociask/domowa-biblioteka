@@ -6,12 +6,28 @@ import UIKit
 import UniformTypeIdentifiers
 
 struct PeriodicalCoverOCRSelection: Equatable, Sendable {
+    let title: String?
     let issueNumber: String?
     let issueVolume: String?
     let issueDate: String?
+    let coverImageData: Data?
+
+    init(
+        title: String? = nil,
+        issueNumber: String? = nil,
+        issueVolume: String? = nil,
+        issueDate: String? = nil,
+        coverImageData: Data? = nil
+    ) {
+        self.title = title
+        self.issueNumber = issueNumber
+        self.issueVolume = issueVolume
+        self.issueDate = issueDate
+        self.coverImageData = coverImageData
+    }
 
     var isEmpty: Bool {
-        issueNumber == nil && issueVolume == nil && issueDate == nil
+        title == nil && issueNumber == nil && issueVolume == nil && issueDate == nil && coverImageData == nil
     }
 }
 
@@ -62,8 +78,9 @@ struct PeriodicalCoverOCRPilotTerminalArbiter: Equatable, Sendable {
     }
 }
 
-/// Review-first cover OCR. The image exists only while the local Vision task
-/// runs; the view returns selected text values and never persists a photo.
+/// Review-first cover OCR. Recognition stays on device. Only after explicit
+/// confirmation does the view return selected text and a sanitized local JPEG
+/// to the parent form; it never writes to the model on its own.
 struct PeriodicalCoverOCRView: View {
     private enum Phase: Equatable {
         case source
@@ -74,6 +91,7 @@ struct PeriodicalCoverOCRView: View {
 
     @Environment(\.dismiss) private var dismiss
 
+    let existingTitle: String
     let existingIssueNumber: String
     let existingIssueVolume: String
     let existingIssueDate: String
@@ -86,12 +104,15 @@ struct PeriodicalCoverOCRView: View {
     @State private var showsCamera = false
     @State private var photoItem: PhotosPickerItem?
     @State private var recognitionTask: Task<Void, Never>?
+    @State private var useTitle = false
     @State private var useIssueNumber = false
     @State private var useIssueVolume = false
     @State private var useIssueDate = false
+    @State private var pendingCoverImageData: Data?
     @State private var pilotTerminalArbiter = PeriodicalCoverOCRPilotTerminalArbiter()
 
     init(
+        existingTitle: String = "",
         existingIssueNumber: String,
         existingIssueVolume: String,
         existingIssueDate: String,
@@ -99,6 +120,7 @@ struct PeriodicalCoverOCRView: View {
         pilotMetricsStore: PilotMetricsStore? = nil,
         onApply: @escaping (PeriodicalCoverOCRSelection) -> Void
     ) {
+        self.existingTitle = existingTitle
         self.existingIssueNumber = existingIssueNumber
         self.existingIssueVolume = existingIssueVolume
         self.existingIssueDate = existingIssueDate
@@ -117,7 +139,7 @@ struct PeriodicalCoverOCRView: View {
                         LibraryMasthead(
                             title: "Odczytaj okładkę",
                             eyebrow: "PRASA · OCR NA URZĄDZENIU",
-                            subtitle: "Zrób zdjęcie przedniej okładki. Aplikacja zaproponuje numer, tom i datę — niczego nie zapisze bez Twojego potwierdzenia.",
+                            subtitle: "Zrób zdjęcie przedniej okładki. Aplikacja zaproponuje tytuł, numer, tom i datę — niczego nie zapisze bez Twojego potwierdzenia.",
                             compact: true
                         )
 
@@ -194,7 +216,7 @@ struct PeriodicalCoverOCRView: View {
         VStack(alignment: .leading, spacing: LibrarySpacing.large) {
             EditorialStatusBand(
                 title: "Zdjęcie pozostaje prywatne",
-                message: "Tekst jest rozpoznawany lokalnie przez iPhone’a. Zdjęcie nie trafia do internetu, kolekcji ani cache aplikacji.",
+                message: "Tekst jest rozpoznawany lokalnie przez iPhone’a. Sam odczyt nie wysyła zdjęcia do internetu i niczego nie wpisuje bez potwierdzenia.",
                 icon: "lock"
             )
 
@@ -237,7 +259,7 @@ struct PeriodicalCoverOCRView: View {
         VStack(alignment: .leading, spacing: LibrarySpacing.large) {
             EditorialStatusBand(
                 title: "Czytam okładkę",
-                message: "Szukam oznaczeń numeru, tomu i daty po polsku, angielsku lub niemiecku.",
+                message: "Szukam tytułu oraz oznaczeń numeru, tomu i daty po polsku, angielsku lub niemiecku.",
                 icon: "text.viewfinder"
             )
             ProgressView()
@@ -257,7 +279,7 @@ struct PeriodicalCoverOCRView: View {
     private func resultContent(_ suggestions: PeriodicalIssueTextSuggestions) -> some View {
         VStack(alignment: .leading, spacing: LibrarySpacing.large) {
             EditorialStatusBand(
-                title: hasAnySuggestion(suggestions) ? "Sprawdź propozycje" : "Nie znalazłem numeru ani daty",
+                title: hasAnySuggestion(suggestions) ? "Sprawdź propozycje" : "Nie znalazłem danych wydania",
                 message: hasAnySuggestion(suggestions)
                     ? "Porównaj odczyt z okładką. Zaznaczone wartości zostaną wpisane dopiero po użyciu przycisku poniżej."
                     : "Spróbuj ponownie w lepszym świetle i obejmij cały tytuł, numer oraz datę.",
@@ -268,6 +290,14 @@ struct PeriodicalCoverOCRView: View {
                 VStack(alignment: .leading, spacing: 0) {
                     EditorialSectionHeader(title: "Odczytane dane", value: "DO POTWIERDZENIA")
 
+                    if let suggestion = suggestions.title {
+                        suggestionRow(
+                            label: "Tytuł pisma",
+                            suggestion: suggestion,
+                            occupied: !existingTitle.trimmedForOCR.isEmpty,
+                            selection: $useTitle
+                        )
+                    }
                     if let suggestion = suggestions.issueNumber {
                         suggestionRow(
                             label: "Numer",
@@ -294,7 +324,28 @@ struct PeriodicalCoverOCRView: View {
                     }
                 }
 
-                EditorialPrimaryButton(title: "Zastosuj zaznaczone", icon: "checkmark") {
+                if let pendingCoverImageData,
+                   let image = UIImage(data: pendingCoverImageData) {
+                    VStack(alignment: .leading, spacing: LibrarySpacing.small) {
+                        EditorialSectionHeader(title: "Własna okładka", value: "GOTOWA")
+                        Image(uiImage: image)
+                            .resizable()
+                            .interpolation(.high)
+                            .scaledToFit()
+                            .frame(maxWidth: 220)
+                            .clipShape(RoundedRectangle(cornerRadius: 3))
+                            .overlay {
+                                RoundedRectangle(cornerRadius: 3)
+                                    .stroke(LibraryPalette.controlBorder, lineWidth: 1)
+                            }
+                            .accessibilityLabel("Zdjęcie gotowe do zapisania jako okładka")
+                    }
+                }
+
+                EditorialPrimaryButton(
+                    title: hasSelectedText(suggestions) ? "Zastosuj zaznaczone" : "Zapisz zdjęcie okładki",
+                    icon: "checkmark"
+                ) {
                     apply(suggestions)
                 }
                 .disabled(!hasApplicableSelection(suggestions))
@@ -409,9 +460,15 @@ struct PeriodicalCoverOCRView: View {
     }
 
     private func recognizePreparedImage(_ preparedData: Data) async throws {
+        async let coverTask: Data? = Task.detached(priority: .userInitiated) {
+            try? LocalCoverImageProcessor.process(preparedData)
+        }.value
         let lines = try await service.recognizeText(in: preparedData)
         try Task.checkCancellation()
         let suggestions = PeriodicalIssueTextParser.parse(lines)
+        pendingCoverImageData = await coverTask
+        try Task.checkCancellation()
+        useTitle = suggestions.title != nil && existingTitle.trimmedForOCR.isEmpty
         useIssueNumber = suggestions.issueNumber != nil && existingIssueNumber.trimmedForOCR.isEmpty
         useIssueVolume = suggestions.issueVolume != nil && existingIssueVolume.trimmedForOCR.isEmpty
         useIssueDate = suggestions.issueDate != nil && existingIssueDate.trimmedForOCR.isEmpty
@@ -428,17 +485,25 @@ struct PeriodicalCoverOCRView: View {
     }
 
     private func hasAnySuggestion(_ suggestions: PeriodicalIssueTextSuggestions) -> Bool {
-        suggestions.issueNumber != nil || suggestions.issueVolume != nil || suggestions.issueDate != nil
+        pendingCoverImageData != nil || suggestions.title != nil || suggestions.issueNumber != nil || suggestions.issueVolume != nil || suggestions.issueDate != nil
     }
 
     private func hasApplicableSelection(_ suggestions: PeriodicalIssueTextSuggestions) -> Bool {
-        (useIssueNumber && suggestions.issueNumber != nil && existingIssueNumber.trimmedForOCR.isEmpty) ||
+        pendingCoverImageData != nil || hasSelectedText(suggestions)
+    }
+
+    private func hasSelectedText(_ suggestions: PeriodicalIssueTextSuggestions) -> Bool {
+        (useTitle && suggestions.title != nil && existingTitle.trimmedForOCR.isEmpty) ||
+            (useIssueNumber && suggestions.issueNumber != nil && existingIssueNumber.trimmedForOCR.isEmpty) ||
             (useIssueVolume && suggestions.issueVolume != nil && existingIssueVolume.trimmedForOCR.isEmpty) ||
             (useIssueDate && suggestions.issueDate != nil && existingIssueDate.trimmedForOCR.isEmpty)
     }
 
     private func apply(_ suggestions: PeriodicalIssueTextSuggestions) {
         let selection = PeriodicalCoverOCRSelection(
+            title: useTitle && existingTitle.trimmedForOCR.isEmpty
+                ? suggestions.title?.value
+                : nil,
             issueNumber: useIssueNumber && existingIssueNumber.trimmedForOCR.isEmpty
                 ? suggestions.issueNumber?.value
                 : nil,
@@ -447,7 +512,8 @@ struct PeriodicalCoverOCRView: View {
                 : nil,
             issueDate: useIssueDate && existingIssueDate.trimmedForOCR.isEmpty
                 ? suggestions.issueDate?.value
-                : nil
+                : nil,
+            coverImageData: pendingCoverImageData
         )
         guard !selection.isEmpty else { return }
         finishPilotSessionApplied()
@@ -458,9 +524,11 @@ struct PeriodicalCoverOCRView: View {
     private func resetToSource() {
         recognitionTask?.cancel()
         photoItem = nil
+        useTitle = false
         useIssueNumber = false
         useIssueVolume = false
         useIssueDate = false
+        pendingCoverImageData = nil
         phase = .source
         pilotTerminalArbiter.observe(.source)
     }

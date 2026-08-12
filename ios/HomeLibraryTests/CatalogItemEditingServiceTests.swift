@@ -99,12 +99,14 @@ final class CatalogItemEditingServiceTests: XCTestCase {
         let context = try makeContext()
         let baseline = Date(timeIntervalSince1970: 1_700_000_000)
         let editedAt = Date(timeIntervalSince1970: 1_710_000_000)
+        let localCover = Data([0xFF, 0xD8, 0x10, 0xFF, 0xD9])
         let publication = Publication(
             type: .book,
             title: "Solaris",
             isbn13: "9788308068854",
             coverURLString: "https://covers.openlibrary.org/b/isbn/9788308068854-M.jpg?default=false",
             coverSource: "openlibrary",
+            coverImageData: localCover,
             createdAt: baseline,
             updatedAt: baseline
         )
@@ -128,6 +130,7 @@ final class CatalogItemEditingServiceTests: XCTestCase {
         XCTAssertEqual(publication.isbn13, "9788308084526")
         XCTAssertEqual(publication.coverURLString, "")
         XCTAssertEqual(publication.coverSource, "")
+        XCTAssertNil(publication.coverImageData)
 
         _ = try service.undo(edit)
 
@@ -137,6 +140,50 @@ final class CatalogItemEditingServiceTests: XCTestCase {
             "https://covers.openlibrary.org/b/isbn/9788308068854-M.jpg?default=false"
         )
         XCTAssertEqual(publication.coverSource, "openlibrary")
+        XCTAssertEqual(publication.coverImageData, localCover)
+    }
+
+    func testEditingLocalCoverPersistsItAndUndoRestoresPreviousData() throws {
+        let context = try makeContext()
+        let baseline = Date(timeIntervalSince1970: 1_700_000_000)
+        let originalCover = Data([0xFF, 0xD8, 0x11, 0xFF, 0xD9])
+        let replacementCover = Data([0xFF, 0xD8, 0x22, 0xFF, 0xD9])
+        let publication = Publication(
+            type: .book,
+            title: "Solaris",
+            coverImageData: originalCover,
+            createdAt: baseline,
+            updatedAt: baseline
+        )
+        let item = OwnedItem(
+            publication: publication,
+            locationPathText: "Gabinet",
+            addedAt: baseline,
+            updatedAt: baseline
+        )
+        context.insert(publication)
+        context.insert(item)
+        try context.save()
+
+        let service = CatalogItemEditingService(modelContext: context)
+        let prepared = try service.prepare(itemID: item.id)
+        XCTAssertEqual(prepared.draft.publication.coverImageData, originalCover)
+        var draft = prepared.draft
+        draft.publication.coverImageData = replacementCover
+
+        let edit = try service.edit(
+            prepared,
+            draft: draft,
+            editedAt: baseline.addingTimeInterval(60)
+        )
+
+        XCTAssertEqual(edit.before.draft.publication.coverImageData, originalCover)
+        XCTAssertEqual(edit.after.draft.publication.coverImageData, replacementCover)
+        XCTAssertEqual(publication.coverImageData, replacementCover)
+
+        _ = try service.undo(edit)
+
+        XCTAssertEqual(publication.coverImageData, originalCover)
     }
 
     func testUndoRestoresExactBeforeStateAndReturnedUndoCanRedo() throws {

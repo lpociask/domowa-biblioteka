@@ -239,7 +239,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = "Domowa Biblioteka";
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
-				INFOPLIST_KEY_NSCameraUsageDescription = "Aparat służy do skanowania kodów ISBN, EAN, UPC-E i QR publikacji.";
+				INFOPLIST_KEY_NSCameraUsageDescription = "Aparat służy do skanowania kodów publikacji oraz fotografowania okładek książek i prasy.";
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				MARKETING_VERSION = 0.2.0;
 				PRODUCT_BUNDLE_IDENTIFIER = pl.homelibrary.app;
@@ -263,7 +263,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = "Domowa Biblioteka";
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
-				INFOPLIST_KEY_NSCameraUsageDescription = "Aparat służy do skanowania kodów ISBN, EAN, UPC-E i QR publikacji.";
+				INFOPLIST_KEY_NSCameraUsageDescription = "Aparat służy do skanowania kodów publikacji oraz fotografowania okładek książek i prasy.";
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				MARKETING_VERSION = 0.2.0;
 				PRODUCT_BUNDLE_IDENTIFIER = pl.homelibrary.app;

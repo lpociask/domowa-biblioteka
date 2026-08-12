@@ -11,6 +11,7 @@ final class PeriodicalIssueTextParserTests: XCTestCase {
         ])
 
         XCTAssertEqual(result.issueNumber?.value, "1-2/2026")
+        XCTAssertEqual(result.title?.value, "ARCHITEKTURA")
         XCTAssertEqual(result.issueNumber?.confidence, 0.92)
         XCTAssertEqual(result.issueNumber?.evidence, "NR 1–2/2026")
         XCTAssertEqual(result.issueVolume?.value, "18")
@@ -128,5 +129,33 @@ final class PeriodicalIssueTextParserTests: XCTestCase {
         ])
 
         XCTAssertEqual(result, .empty)
+    }
+
+    func testProposesRouleurMastheadWithoutGuessingUnlabelledIssueNumber() {
+        let result = PeriodicalIssueTextParser.parse([
+            .init(text: "Rouleur", confidence: 0.99),
+            .init(text: "CYCLING CULTURE", confidence: 0.94),
+            .init(text: "45", confidence: 0.99),
+            .init(text: "JULY", confidence: 0.96),
+            .init(text: "ISSN 1752-962X", confidence: 0.98)
+        ])
+
+        XCTAssertEqual(result.title?.value, "Rouleur")
+        XCTAssertEqual(result.title?.evidence, "Rouleur")
+        XCTAssertNil(result.issueNumber)
+        XCTAssertNil(result.issueDate)
+    }
+
+    func testDoesNotTreatIssueLabelsDatesPricesOrURLsAsTitle() {
+        let result = PeriodicalIssueTextParser.parse([
+            .init(text: "Issue 45", confidence: 0.99),
+            .init(text: "July 2026", confidence: 0.99),
+            .init(text: "Price 12 GBP", confidence: 0.99),
+            .init(text: "www.example.com", confidence: 0.99)
+        ])
+
+        XCTAssertNil(result.title)
+        XCTAssertEqual(result.issueNumber?.value, "45")
+        XCTAssertEqual(result.issueDate?.value, "2026-07")
     }
 }

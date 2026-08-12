@@ -21,6 +21,7 @@ struct PublicationEditDraft: Equatable {
     var metadataSource: String
     var coverURLString: String
     var coverSource: String
+    var coverImageData: Data?
 }
 
 /// Editable values belonging to one physical copy only.
@@ -404,6 +405,12 @@ struct CatalogItemEditingService {
             }
         }
 
+        if draft.coverImageData != baseline.coverImageData {
+            normalized.coverImageData = draft.coverImageData.flatMap {
+                $0.isEmpty ? nil : $0
+            }
+        }
+
         if draft.publicationYear != baseline.publicationYear {
             if let year = draft.publicationYear, !(1...9999).contains(year) {
                 throw CatalogItemEditingError.invalidPublicationYear
@@ -464,6 +471,10 @@ struct CatalogItemEditingService {
            draft.coverSource == baseline.coverSource {
             normalized.coverURLString = ""
             normalized.coverSource = ""
+        }
+        if identityChanged(from: baseline, to: normalized),
+           draft.coverImageData == baseline.coverImageData {
+            normalized.coverImageData = nil
         }
         return normalized
     }
@@ -747,7 +758,8 @@ struct CatalogItemEditingService {
             issueDate: publication.issueDate,
             metadataSource: publication.metadataSource,
             coverURLString: publication.coverURLString,
-            coverSource: publication.coverSource
+            coverSource: publication.coverSource,
+            coverImageData: publication.coverImageData
         )
     }
 
@@ -769,6 +781,7 @@ struct CatalogItemEditingService {
         publication.metadataSource = draft.metadataSource
         publication.coverURLString = draft.coverURLString
         publication.coverSource = draft.coverSource
+        publication.coverImageData = draft.coverImageData
     }
 
     private static func apply(_ draft: OwnedItemEditDraft, to item: OwnedItem) {

@@ -24,6 +24,7 @@ struct CatalogingSaveRequest {
     let metadataSource: String
     let coverURLString: String
     let coverSource: String
+    let coverImageData: Data?
     let locationPathText: String
     let notes: String
     let savedAt: Date
@@ -47,6 +48,7 @@ struct CatalogingSaveRequest {
         metadataSource: String = "manual",
         coverURLString: String = "",
         coverSource: String = "",
+        coverImageData: Data? = nil,
         locationPathText: String = "",
         notes: String = "",
         savedAt: Date = .now,
@@ -69,6 +71,7 @@ struct CatalogingSaveRequest {
         self.metadataSource = metadataSource
         self.coverURLString = coverURLString
         self.coverSource = coverSource
+        self.coverImageData = coverImageData.flatMap { $0.isEmpty ? nil : $0 }
         self.locationPathText = locationPathText
         self.notes = notes
         self.savedAt = savedAt
@@ -166,6 +169,11 @@ struct CatalogingService {
                 publication.coverSource = request.coverSource
                 updatedSharedDescription = true
             }
+            if publication.resolvedCoverImageData == nil,
+               let coverImageData = request.coverImageData {
+                publication.coverImageData = coverImageData
+                updatedSharedDescription = true
+            }
             if updatedSharedDescription {
                 publication.updatedAt = request.savedAt
             }
@@ -188,6 +196,7 @@ struct CatalogingService {
                 metadataSource: request.metadataSource,
                 coverURLString: request.coverURLString,
                 coverSource: request.coverSource,
+                coverImageData: request.coverImageData,
                 createdAt: request.savedAt,
                 updatedAt: request.savedAt
             )

@@ -23,6 +23,7 @@ struct PublicationCoverView: View {
         }
     }
 
+    let localData: Data?
     let url: URL?
     let title: String
     let source: String?
@@ -34,11 +35,13 @@ struct PublicationCoverView: View {
     @State private var retryGeneration = 0
 
     init(
+        localData: Data? = nil,
         url: URL?,
         title: String,
         source: String? = nil,
         mode: Mode
     ) {
+        self.localData = localData
         self.url = url
         self.title = title
         self.source = source
@@ -47,16 +50,53 @@ struct PublicationCoverView: View {
 
     var body: some View {
         Group {
-            if mode == .thumbnail {
-                thumbnail
-            } else if mode == .collection {
-                collectionCover
+            if let localImage {
+                localCover(localImage)
             } else {
-                fullCover
+                Group {
+                    if mode == .thumbnail {
+                        thumbnail
+                    } else if mode == .collection {
+                        collectionCover
+                    } else {
+                        fullCover
+                    }
+                }
+                .task(id: requestID) {
+                    await loadCover()
+                }
             }
         }
-        .task(id: requestID) {
-            await loadCover()
+    }
+
+    @ViewBuilder
+    private func localCover(_ image: UIImage) -> some View {
+        switch mode {
+        case .thumbnail:
+            coverCanvas {
+                coverImage(image)
+            }
+            .accessibilityHidden(true)
+
+        case .collection:
+            coverCanvas {
+                coverImage(image)
+            }
+            .accessibilityLabel("Własna okładka publikacji \(displayTitle)")
+
+        case .lookup, .detail:
+            VStack(alignment: .leading, spacing: LibrarySpacing.xSmall) {
+                coverCanvas {
+                    coverImage(image)
+                        .accessibilityLabel("Własna okładka publikacji \(displayTitle)")
+                }
+
+                Text("OKŁADKA · WŁASNE ZDJĘCIE")
+                    .font(.caption2.weight(.bold))
+                    .tracking(1.25)
+                    .foregroundStyle(LibraryPalette.mutedInk)
+                    .accessibilityHidden(true)
+            }
         }
     }
 
@@ -273,6 +313,10 @@ struct PublicationCoverView: View {
     private var displayTitle: String {
         let clean = title.trimmingCharacters(in: .whitespacesAndNewlines)
         return clean.isEmpty ? "bez tytułu" : clean
+    }
+
+    private var localImage: UIImage? {
+        localData.flatMap { UIImage(data: $0) }
     }
 
     private var sourceCaption: String? {

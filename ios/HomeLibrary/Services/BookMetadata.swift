@@ -3,6 +3,7 @@ import Foundation
 enum BookMetadataSource: String, Codable, Equatable, Sendable {
     case nationalLibrary = "bn"
     case openLibrary = "openlibrary"
+    case libraryOfCongress = "libraryOfCongress"
 
     var displayName: String {
         switch self {
@@ -10,6 +11,8 @@ enum BookMetadataSource: String, Codable, Equatable, Sendable {
             "Biblioteki Narodowej"
         case .openLibrary:
             "Open Library"
+        case .libraryOfCongress:
+            "Library of Congress"
         }
     }
 }
@@ -219,13 +222,20 @@ struct CascadingBookMetadataProvider: BookMetadataProviding {
     init(
         nationalLibrary: any BookMetadataProviding,
         openLibrary: any BookMetadataProviding,
+        libraryOfCongress: (any BookMetadataProviding)? = nil,
         nationalLibraryCoverEnrichment: (any BookMetadataProviding)? = nil,
         observer: BookMetadataLookupObserver = .disabled
     ) {
-        stages = [
+        var configuredStages = [
             Stage(pilotSource: .nationalLibrary, provider: nationalLibrary),
             Stage(pilotSource: .openLibrary, provider: openLibrary)
         ]
+        if let libraryOfCongress {
+            configuredStages.append(
+                Stage(pilotSource: .libraryOfCongress, provider: libraryOfCongress)
+            )
+        }
+        stages = configuredStages
         self.nationalLibraryCoverEnrichment = nationalLibraryCoverEnrichment.map {
             Stage(pilotSource: .openLibrary, provider: $0)
         }
@@ -239,6 +249,7 @@ struct CascadingBookMetadataProvider: BookMetadataProviding {
                 primary: OpenLibraryMetadataService(),
                 fallback: OpenLibrarySearchMetadataService()
             ),
+            libraryOfCongress: LibraryOfCongressMetadataService(),
             nationalLibraryCoverEnrichment: OpenLibrarySearchMetadataService(),
             observer: observer
         )

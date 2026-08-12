@@ -24,6 +24,7 @@ final class CollectionExporterTests: XCTestCase {
             metadataSource: "scan",
             coverURLString: "https://covers.openlibrary.org/b/id/123-M.jpg",
             coverSource: "openlibrary",
+            coverImageData: Data("PRIVATE-LOCAL-COVER-SENTINEL".utf8),
             createdAt: timestamp,
             updatedAt: timestamp
         )
@@ -53,6 +54,7 @@ final class CollectionExporterTests: XCTestCase {
         XCTAssertNotNil(payload.ownedItems[0].locationId)
 
         let data = try CollectionExporter.encode(payload)
+        XCTAssertFalse(String(decoding: data, as: UTF8.self).contains("PRIVATE-LOCAL-COVER-SENTINEL"))
         let json = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
         XCTAssertEqual(json["schemaVersion"] as? Int, 1)
         XCTAssertNotNil(json["exportedAt"] as? String)

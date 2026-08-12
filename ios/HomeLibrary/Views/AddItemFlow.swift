@@ -13,7 +13,7 @@ struct AddItemFlow: View {
     private enum MetadataLookupState: Equatable {
         case idle
         case loading
-        case enriched(BookMetadataSource)
+        case enriched(String)
         case noMatch
         case failed
     }
@@ -80,6 +80,7 @@ struct AddItemFlow: View {
     @State private var metadataSource = "manual"
     @State private var coverURLString = ""
     @State private var coverSource = ""
+    @State private var coverImageData: Data? = nil
     @State private var validationMessage: String?
     @State private var metadataLookupState: MetadataLookupState = .idle
     @State private var metadataLookupTask: Task<Void, Never>?
@@ -143,7 +144,7 @@ struct AddItemFlow: View {
             observer: lookupObserver
         )
         self.periodicalMetadataProvider = periodicalMetadataProvider
-            ?? BNPeriodicalMetadataService(observer: lookupObserver)
+            ?? CascadingPeriodicalMetadataProvider.production(observer: lookupObserver)
         self.pilotMetricsStore = pilotMetricsStore
         self.onMutation = onMutation
     }
@@ -220,6 +221,7 @@ struct AddItemFlow: View {
         }
         .sheet(isPresented: $showsPeriodicalCoverOCR) {
             PeriodicalCoverOCRView(
+                existingTitle: title,
                 existingIssueNumber: issueNumber,
                 existingIssueVolume: issueVolume,
                 existingIssueDate: issueDate,
@@ -399,7 +401,7 @@ struct AddItemFlow: View {
                     periodicalSection
                 }
 
-                coverPreviewSection
+                coverSection
 
                 locationSection
 
@@ -450,10 +452,10 @@ struct AddItemFlow: View {
         let statusMessage: String
         if titleIsEmpty, metadataLookupState == .loading {
             statusTitle = "Szukam tytułu prasy"
-            statusMessage = "Sprawdzam serię w Bibliotece Narodowej po numerze ISSN. Możesz w tym czasie uzupełnić formularz."
+            statusMessage = "Sprawdzam serię w BN i międzynarodowym ISSN Portal. Możesz w tym czasie uzupełnić formularz."
         } else if titleIsEmpty, metadataLookupState == .noMatch {
-            statusTitle = "Serii nie ma w katalogu BN"
-            statusMessage = "Kod 977 jest poprawny, ale tytułu nie udało się uzupełnić. Wpisz go ręcznie, a potem potwierdź numer lub datę z okładki."
+            statusTitle = "Serii nie ma w katalogach"
+            statusMessage = "Kod 977 jest poprawny, ale tytułu nie udało się uzupełnić. Rozpoznaj go ze zdjęcia lub wpisz ręcznie."
         } else if titleIsEmpty, hasValidPeriodicalEAN {
             statusTitle = "Rozpoznano prasę — wpisz tytuł"
             statusMessage = "Kod 977 wskazuje serię. Jeśli BN jej nie rozpozna, wpisz tytuł ręcznie, a potem potwierdź numer lub datę z okładki."
@@ -466,6 +468,9 @@ struct AddItemFlow: View {
         } else if metadataSource == PeriodicalMetadataSource.nationalLibrary.rawValue {
             statusTitle = "Rozpoznano prasę · BN"
             statusMessage = "Tytuł serii uzupełniono z Biblioteki Narodowej. Potwierdź konkretny numer lub datę z okładki przed zapisem."
+        } else if metadataSource == PeriodicalMetadataSource.issnPortal.rawValue {
+            statusTitle = "Rozpoznano prasę · ISSN"
+            statusMessage = "Tytuł zagranicznej serii uzupełniono z ISSN Portal. Potwierdź konkretny numer lub datę z okładki przed zapisem."
         } else {
             statusTitle = "Rozpoznano prasę"
             statusMessage = "Tytuł jest gotowy. Potwierdź konkretny numer lub datę z okładki przed zapisem."
@@ -481,8 +486,8 @@ struct AddItemFlow: View {
 
     private var periodicalOCRAction: some View {
         EditorialActionRow(
-            title: "Odczytaj numer z okładki",
-            detail: "Zrób zdjęcie; OCR lokalnie zaproponuje numer, tom i datę.",
+            title: "Rozpoznaj dane z okładki",
+            detail: "Zrób zdjęcie; OCR lokalnie zaproponuje tytuł, numer, tom i datę.",
             icon: "text.viewfinder",
             accent: LibraryPalette.orangeText
         ) {
@@ -897,8 +902,8 @@ struct AddItemFlow: View {
                 EditorialStatusBand(
                     title: "Szukam publikacji",
                     message: publicationType == .periodical
-                        ? "Sprawdzam Bibliotekę Narodową po ISSN. Formularz działa w tym czasie normalnie."
-                        : "Sprawdzam Bibliotekę Narodową i Open Library. Formularz działa w tym czasie normalnie.",
+                        ? "Sprawdzam Bibliotekę Narodową i międzynarodowy ISSN Portal. Formularz działa w tym czasie normalnie."
+                        : "Sprawdzam BN, Open Library i Library of Congress. Formularz działa w tym czasie normalnie.",
                     icon: "text.magnifyingglass"
                 )
                 ProgressView()
@@ -913,7 +918,7 @@ struct AddItemFlow: View {
 
             case .enriched(let source):
                 EditorialStatusBand(
-                    title: "Dane znalezione · \(source.displayName)",
+                    title: "Dane znalezione · \(source)",
                     message: "Uzupełniłem dostępny opis. Sprawdź go przed zapisem.",
                     icon: "checkmark"
                 )
@@ -928,8 +933,8 @@ struct AddItemFlow: View {
                 EditorialStatusBand(
                     title: "Brak rekordu w katalogach",
                     message: publicationType == .periodical
-                        ? "Połączenie działa, ale tego ISSN nie ma w katalogu BN. Uzupełnij tytuł serii ręcznie albo spróbuj jeszcze raz."
-                        : "Połączenie działa, ale tego ISBN nie ma w BN ani Open Library. Uzupełnij opis ręcznie albo spróbuj jeszcze raz.",
+                        ? "Połączenie działa, ale tego ISSN nie ma w BN ani ISSN Portal. Uzupełnij tytuł ręcznie lub rozpoznaj go ze zdjęcia okładki."
+                        : "Połączenie działa, ale tego ISBN nie ma w BN, Open Library ani Library of Congress. Uzupełnij opis ręcznie albo spróbuj jeszcze raz.",
                     icon: "questionmark"
                 )
                 retryAndRescanActions
@@ -945,21 +950,43 @@ struct AddItemFlow: View {
         }
     }
 
-    @ViewBuilder
-    private var coverPreviewSection: some View {
-        if let coverURL = previewCoverURL {
-            VStack(alignment: .leading, spacing: LibrarySpacing.medium) {
-                EditorialSectionHeader(title: "Okładka", value: "PODGLĄD")
-
+    private var coverSection: some View {
+        VStack(alignment: .leading, spacing: LibrarySpacing.medium) {
+            if duplicateMatch?.publication.resolvedCoverImageData != nil ||
+                (coverImageData == nil && previewCoverURL != nil) {
+                EditorialSectionHeader(title: "Okładka katalogowa", value: "PODGLĄD")
                 PublicationCoverView(
-                    url: coverURL,
+                    localData: previewCoverImageData,
+                    url: previewCoverURL,
                     title: previewCoverTitle,
                     source: previewCoverSource,
                     mode: .lookup
                 )
                 .frame(maxWidth: .infinity, alignment: .center)
             }
+
+            if duplicateMatch == nil {
+                CoverPhotoCaptureView(existingImageData: coverImageData) { newData in
+                    coverImageData = newData
+                }
+
+                Text("Własne zdjęcie jest przechowywane lokalnie z bazą aplikacji. Obecny eksport JSON nie zawiera plików zdjęć.")
+                    .font(.system(.footnote, design: .serif))
+                    .lineSpacing(3)
+                    .foregroundStyle(LibraryPalette.mutedInk)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else if duplicateMatch?.publication.resolvedCoverImageData == nil {
+                EditorialStatusBand(
+                    title: "Okładka jest wspólna dla wszystkich kopii",
+                    message: "Zapisz egzemplarz, a następnie użyj opcji Edytuj, aby dodać zdjęcie do wspólnego opisu publikacji.",
+                    icon: "photo"
+                )
+            }
         }
+    }
+
+    private var previewCoverImageData: Data? {
+        duplicateMatch?.publication.resolvedCoverImageData ?? coverImageData
     }
 
     private var previewCoverURL: URL? {
@@ -1292,6 +1319,7 @@ struct AddItemFlow: View {
         // A new issue may have a different cover even when the series is the same.
         coverURLString = ""
         coverSource = ""
+        coverImageData = nil
         metadataSource = "manual"
         UINotificationFeedbackGenerator().notificationOccurred(.success)
         UIAccessibility.post(
@@ -1301,30 +1329,48 @@ struct AddItemFlow: View {
     }
 
     private func applyPeriodicalOCRSelection(_ selection: PeriodicalCoverOCRSelection) {
-        let pilotValuesBeforeApply = currentPilotValues(for: Self.pilotPeriodicalFields)
+        let trackedFields = Self.pilotMetadataFields + Self.pilotPeriodicalFields
+        let pilotValuesBeforeApply = currentPilotValues(for: trackedFields)
         var appliedFields: [String] = []
+        var didApplyText = false
+        if title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+           let value = selection.title?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !value.isEmpty {
+            title = value
+            appliedFields.append("tytuł")
+            didApplyText = true
+        }
         if issueNumber.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
            let value = selection.issueNumber {
             issueNumber = value
             appliedFields.append("numer")
+            didApplyText = true
         }
         if issueVolume.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
            let value = selection.issueVolume {
             issueVolume = value
             appliedFields.append("tom")
+            didApplyText = true
         }
         if issueDate.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
            let value = selection.issueDate {
             issueDate = value
             appliedFields.append("data")
+            didApplyText = true
+        }
+        if let imageData = selection.coverImageData, !imageData.isEmpty {
+            coverImageData = imageData
+            appliedFields.append("okładka")
         }
         guard !appliedFields.isEmpty else { return }
         _ = pilotAttemptTracker.markRecognition()
         capturePilotAutomaticChanges(
-            in: Self.pilotPeriodicalFields,
+            in: trackedFields,
             from: pilotValuesBeforeApply
         )
-        metadataSource = "ocr"
+        if didApplyText {
+            metadataSource = "ocr"
+        }
         UINotificationFeedbackGenerator().notificationOccurred(.success)
         UIAccessibility.post(
             notification: .announcement,
@@ -1408,6 +1454,7 @@ struct AddItemFlow: View {
         metadataSource = "manual"
         coverURLString = ""
         coverSource = ""
+        coverImageData = nil
         validationMessage = nil
         showsMoreData = false
         forceNewPeriodicalPublication = false
@@ -1420,7 +1467,7 @@ struct AddItemFlow: View {
     }
 
     private var hasEnteredData: Bool {
-        !title.isEmpty || !authors.isEmpty || !barcode.isEmpty || !catalogingSession.locationText.isEmpty
+        !title.isEmpty || !authors.isEmpty || !barcode.isEmpty || coverImageData != nil || !catalogingSession.locationText.isEmpty
     }
 
     @discardableResult
@@ -1532,7 +1579,7 @@ struct AddItemFlow: View {
                     from: pilotValuesBeforeApply
                 )
                 metadataSource = metadata.source.rawValue
-                metadataLookupState = .enriched(metadata.source)
+                metadataLookupState = .enriched(metadata.source.displayName)
             } catch is CancellationError {
                 return
             } catch {
@@ -1639,7 +1686,7 @@ struct AddItemFlow: View {
                 if didApplyMetadata {
                     metadataSource = metadata.source.rawValue
                 }
-                metadataLookupState = .enriched(.nationalLibrary)
+                metadataLookupState = .enriched(metadata.source.displayName)
             } catch is CancellationError {
                 return
             } catch {
@@ -1704,7 +1751,9 @@ struct AddItemFlow: View {
         metadataLookupState = .idle
 
         if metadataSource == BookMetadataSource.nationalLibrary.rawValue ||
-            metadataSource == BookMetadataSource.openLibrary.rawValue {
+            metadataSource == BookMetadataSource.openLibrary.rawValue ||
+            metadataSource == BookMetadataSource.libraryOfCongress.rawValue ||
+            metadataSource == PeriodicalMetadataSource.issnPortal.rawValue {
             metadataSource = "manual"
         }
         if newType == .periodical,
@@ -1726,7 +1775,8 @@ struct AddItemFlow: View {
         metadataLookupISSN = nil
         metadataLookupState = .idle
         if metadataSource == BookMetadataSource.nationalLibrary.rawValue ||
-            metadataSource == BookMetadataSource.openLibrary.rawValue {
+            metadataSource == BookMetadataSource.openLibrary.rawValue ||
+            metadataSource == BookMetadataSource.libraryOfCongress.rawValue {
             metadataSource = "manual"
         }
         if coverSource == BookMetadataSource.openLibrary.rawValue {
@@ -1745,7 +1795,8 @@ struct AddItemFlow: View {
         metadataLookupTask = nil
         metadataLookupISSN = nil
         metadataLookupState = .idle
-        if metadataSource == PeriodicalMetadataSource.nationalLibrary.rawValue {
+        if metadataSource == PeriodicalMetadataSource.nationalLibrary.rawValue ||
+            metadataSource == PeriodicalMetadataSource.issnPortal.rawValue {
             metadataSource = "manual"
         }
     }
@@ -1890,6 +1941,7 @@ struct AddItemFlow: View {
             metadataSource: metadataSource,
             coverURLString: coverURLString,
             coverSource: coverSource,
+            coverImageData: match == nil ? coverImageData : nil,
             locationPathText: catalogingSession.locationText,
             notes: notes.trimmingCharacters(in: .whitespacesAndNewlines),
             savedAt: now,

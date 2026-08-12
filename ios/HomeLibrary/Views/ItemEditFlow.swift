@@ -222,6 +222,16 @@ struct ItemEditFlow: View {
                 periodicalFields
             }
 
+            CoverPhotoCaptureView(existingImageData: draft.publication.coverImageData) { newData in
+                draft.publication.coverImageData = newData
+            }
+
+            Text("Zdjęcie okładki należy do wspólnego opisu wydania i jest przechowywane lokalnie. Obecny eksport JSON nie zawiera pliku zdjęcia.")
+                .font(.system(.footnote, design: .serif))
+                .lineSpacing(3)
+                .foregroundStyle(LibraryPalette.mutedInk)
+                .fixedSize(horizontal: false, vertical: true)
+
             moreBibliography
         }
     }

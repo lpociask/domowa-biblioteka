@@ -12,11 +12,13 @@ struct PeriodicalIssueTextSuggestion: Equatable, Sendable {
 }
 
 struct PeriodicalIssueTextSuggestions: Equatable, Sendable {
+    let title: PeriodicalIssueTextSuggestion?
     let issueNumber: PeriodicalIssueTextSuggestion?
     let issueVolume: PeriodicalIssueTextSuggestion?
     let issueDate: PeriodicalIssueTextSuggestion?
 
     static let empty = PeriodicalIssueTextSuggestions(
+        title: nil,
         issueNumber: nil,
         issueVolume: nil,
         issueDate: nil
@@ -28,6 +30,7 @@ struct PeriodicalIssueTextSuggestions: Equatable, Sendable {
 /// ignores ambiguous, unlabelled numbers.
 enum PeriodicalIssueTextParser {
     private static let minimumConfidence: Float = 0.3
+    private static let minimumTitleConfidence: Float = 0.45
 
     private struct Candidate {
         let value: String
@@ -102,6 +105,7 @@ enum PeriodicalIssueTextParser {
     )
 
     static func parse(_ lines: [PeriodicalRecognizedTextLine]) -> PeriodicalIssueTextSuggestions {
+        var titleCandidate: PeriodicalIssueTextSuggestion?
         var issueCandidates: [Candidate] = []
         var volumeCandidates: [Candidate] = []
         var dateCandidates: [Candidate] = []
@@ -119,6 +123,16 @@ enum PeriodicalIssueTextParser {
             guard !containsMatch(identifierMarkers, in: normalized),
                   !containsMatch(priceMarkers, in: normalized) else {
                 continue
+            }
+
+            if titleCandidate == nil,
+               confidence >= minimumTitleConfidence,
+               isLikelyTitle(evidence, normalized: normalized) {
+                titleCandidate = PeriodicalIssueTextSuggestion(
+                    value: normalizedTitle(evidence),
+                    confidence: confidence,
+                    evidence: evidence
+                )
             }
 
             if let captured = firstCapture(issueRegex, in: normalized),
@@ -150,10 +164,61 @@ enum PeriodicalIssueTextParser {
         }
 
         return PeriodicalIssueTextSuggestions(
+            title: titleCandidate,
             issueNumber: bestSuggestion(from: issueCandidates),
             issueVolume: bestSuggestion(from: volumeCandidates),
             issueDate: bestSuggestion(from: dateCandidates)
         )
+    }
+
+    /// OCR observations arrive in visual reading order. The first conservative
+    /// text-like candidate is therefore a useful masthead suggestion, but it is
+    /// still review-only and never overwrites an existing title.
+    private static func isLikelyTitle(_ evidence: String, normalized: String) -> Bool {
+        let value = normalizedTitle(evidence)
+        guard value.count >= 2, value.count <= 80 else { return false }
+
+        let words = value.split(whereSeparator: \.isWhitespace)
+        guard !words.isEmpty, words.count <= 8 else { return false }
+
+        let letters = value.unicodeScalars.filter { CharacterSet.letters.contains($0) }.count
+        guard letters >= 2, Double(letters) / Double(max(1, value.unicodeScalars.count)) >= 0.45 else {
+            return false
+        }
+
+        guard !normalized.contains("http"),
+              !normalized.contains("www."),
+              !normalized.contains("@"),
+              firstCapture(issueRegex, in: normalized) == nil,
+              firstCapture(volumeRegex, in: normalized) == nil,
+              captures(fullDateRegex, in: normalized, groups: 3).isEmpty,
+              captures(isoMonthRegex, in: normalized, groups: 2).isEmpty,
+              firstCapture(namedMonthThenYearRegex, in: normalized) == nil,
+              firstCapture(yearThenNamedMonthRegex, in: normalized) == nil else {
+            return false
+        }
+
+        let foldedWords = normalized.split(whereSeparator: \.isWhitespace).map(String.init)
+        let excludedLeadWords: Set<String> = [
+            "nr", "numer", "no", "issue", "ausgabe", "heft",
+            "tom", "vol", "volume", "band", "jahrgang",
+            "published", "wydanie", "edition"
+        ]
+        guard foldedWords.first.map({ !excludedLeadWords.contains($0.trimmingCharacters(in: .punctuationCharacters)) }) ?? false else {
+            return false
+        }
+
+        let meaningfulWords = foldedWords.filter {
+            !monthNames.keys.contains($0.trimmingCharacters(in: .punctuationCharacters))
+        }
+        return !meaningfulWords.isEmpty
+    }
+
+    private static func normalizedTitle(_ value: String) -> String {
+        value
+            .split(whereSeparator: \.isWhitespace)
+            .joined(separator: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private static func extractDateCandidates(
