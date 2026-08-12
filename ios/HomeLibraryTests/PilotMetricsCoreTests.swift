@@ -254,29 +254,30 @@ final class PilotMetricsCoreTests: XCTestCase {
 
     func testReportUsesCompletedSamplesForMedianP90AndCorrectionRates() throws {
         let records: [PilotMetricRecord] = [
-            record(1, .catalog(catalog(.book, .completed, 100, recognition: 20, corrections: 0))),
-            record(2, .catalog(catalog(.book, .completed, 200, recognition: 40, corrections: 1))),
-            record(3, .catalog(catalog(.book, .completed, 300, recognition: 60, corrections: 2))),
-            record(4, .catalog(catalog(.book, .completed, 400, recognition: 80, corrections: 0))),
-            record(5, .catalog(catalog(.book, .cancelled, 9_999, recognition: 9_999, corrections: 99))),
-            record(6, .catalog(catalog(.periodical, .cancelled, 500)))
+            record(1, .catalog(catalog(.book, .completed, 100, recognition: 20, corrections: 0, autofilled: true))),
+            record(2, .catalog(catalog(.book, .completed, 200, recognition: 40, corrections: 1, autofilled: true))),
+            record(3, .catalog(catalog(.book, .completed, 300, recognition: 60, corrections: 2, autofilled: true))),
+            record(4, .catalog(catalog(.book, .completed, 400, recognition: 80, corrections: 0, autofilled: true))),
+            record(5, .catalog(catalog(.book, .cancelled, 9_999, recognition: 9_999, corrections: 99, autofilled: true))),
+            record(6, .catalog(catalog(.periodical, .cancelled, 500))),
+            record(7, .catalog(catalog(.book, .completed, 500, corrections: 0))),
+            record(8, .catalog(catalog(.periodical, .completed, 600, corrections: 4, autofilled: true)))
         ]
 
         let report = PilotReportBuilder.build(from: records)
         let book = try XCTUnwrap(report.catalog.first { $0.publicationKind == .book })
         let periodical = try XCTUnwrap(report.catalog.first { $0.publicationKind == .periodical })
 
-        XCTAssertEqual(book.attempts, 5)
-        XCTAssertEqual(book.completed, 4)
+        XCTAssertEqual(book.attempts, 6)
+        XCTAssertEqual(book.completed, 5)
         XCTAssertEqual(book.cancelled, 1)
-        XCTAssertEqual(book.activeMilliseconds.sampleCount, 4)
-        XCTAssertEqual(try XCTUnwrap(book.activeMilliseconds.median), 250, accuracy: 0.001)
-        XCTAssertEqual(try XCTUnwrap(book.activeMilliseconds.p90), 370, accuracy: 0.001)
+        XCTAssertEqual(book.activeMilliseconds.sampleCount, 5)
+        XCTAssertEqual(try XCTUnwrap(book.activeMilliseconds.median), 300, accuracy: 0.001)
+        XCTAssertEqual(try XCTUnwrap(book.activeMilliseconds.p90), 460, accuracy: 0.001)
         XCTAssertEqual(try XCTUnwrap(book.recognitionToSaveMilliseconds.median), 50, accuracy: 0.001)
         XCTAssertEqual(try XCTUnwrap(book.recognitionToSaveMilliseconds.p90), 74, accuracy: 0.001)
-        XCTAssertEqual(periodical.completed, 0)
-        XCTAssertNil(periodical.activeMilliseconds.median)
-        XCTAssertNil(periodical.activeMilliseconds.p90)
+        XCTAssertEqual(periodical.completed, 1)
+        XCTAssertEqual(periodical.activeMilliseconds.median, 600)
 
         XCTAssertEqual(report.corrections.completedItems, 4)
         XCTAssertEqual(report.corrections.correctedItems, 2)
@@ -292,7 +293,11 @@ final class PilotMetricsCoreTests: XCTestCase {
             record(2, .lookup(PilotLookupMetric(source: .nationalLibrary, outcome: .notFound))),
             record(3, .lookup(PilotLookupMetric(source: .nationalLibrary, outcome: .failed))),
             record(4, .lookup(PilotLookupMetric(source: .nationalLibrary, outcome: .cancelled))),
-            record(5, .lookup(PilotLookupMetric(source: .metadataCache, outcome: .found)))
+            record(5, .lookup(PilotLookupMetric(source: .metadataCache, outcome: .found))),
+            record(6, .lookup(PilotLookupMetric(source: .metadataCache, outcome: .notFound))),
+            record(7, .lookup(PilotLookupMetric(source: .metadataCache, outcome: .miss))),
+            record(8, .lookup(PilotLookupMetric(source: .metadataCache, outcome: .stale))),
+            record(9, .lookup(PilotLookupMetric(source: .metadataCache, outcome: .staleFallback)))
         ]
 
         let report = PilotReportBuilder.build(from: records)
@@ -318,8 +323,16 @@ final class PilotMetricsCoreTests: XCTestCase {
         XCTAssertEqual(openLibrary.attempts, 0)
         XCTAssertEqual(openLibrary.foundRate.denominator, 0)
         XCTAssertNil(openLibrary.foundRate.value)
-        XCTAssertEqual(cache.attempts, 1)
-        XCTAssertEqual(cache.foundRate.value, 1)
+        XCTAssertEqual(cache.attempts, 5)
+        XCTAssertEqual(cache.found, 1)
+        XCTAssertEqual(cache.notFound, 1)
+        XCTAssertEqual(cache.miss, 1)
+        XCTAssertEqual(cache.stale, 1)
+        XCTAssertEqual(cache.staleFallback, 1)
+        XCTAssertEqual(cache.foundRate.value, 0.2)
+        XCTAssertEqual(cache.usableCacheRate.numerator, 3)
+        XCTAssertEqual(cache.usableCacheRate.denominator, 5)
+        XCTAssertEqual(cache.usableCacheRate.value, 0.6)
     }
 
     func testOperationalKPIsCoverLocationOCRSearchMutationsAndTransfers() throws {
@@ -336,7 +349,10 @@ final class PilotMetricsCoreTests: XCTestCase {
             record(10, .mutation(PilotMutationMetric(action: .move, outcome: .completed))),
             record(11, .mutation(PilotMutationMetric(action: .move, outcome: .failed))),
             record(12, .transfer(PilotTransferMetric(direction: .roundTrip, outcome: .verified))),
-            record(13, .transfer(PilotTransferMetric(direction: .roundTrip, outcome: .mismatch)))
+            record(13, .transfer(PilotTransferMetric(direction: .roundTrip, outcome: .mismatch))),
+            record(14, .transfer(PilotTransferMetric(direction: .roundTrip, outcome: .completed))),
+            record(15, .transfer(PilotTransferMetric(direction: .export, outcome: .completed))),
+            record(16, .mutation(PilotMutationMetric(action: .delete, outcome: .completed)))
         ]
 
         let report = PilotReportBuilder.build(from: records)
@@ -354,13 +370,25 @@ final class PilotMetricsCoreTests: XCTestCase {
         XCTAssertEqual(move.failed, 1)
         XCTAssertEqual(move.completionRate.value, 0.5)
 
+        let delete = try XCTUnwrap(report.mutations.first { $0.action == .delete })
+        XCTAssertEqual(delete.attempts, 1)
+        XCTAssertEqual(delete.completed, 1)
+
         let roundTrip = try XCTUnwrap(
             report.transfers.first { $0.direction == .roundTrip }
         )
-        XCTAssertEqual(roundTrip.attempts, 2)
+        XCTAssertEqual(roundTrip.attempts, 3)
+        XCTAssertEqual(roundTrip.completed, 1)
         XCTAssertEqual(roundTrip.verified, 1)
         XCTAssertEqual(roundTrip.mismatch, 1)
+        XCTAssertEqual(roundTrip.verificationDenominator, 2)
         XCTAssertEqual(roundTrip.verificationRate.value, 0.5)
+
+        let export = try XCTUnwrap(report.transfers.first { $0.direction == .export })
+        XCTAssertEqual(export.attempts, 1)
+        XCTAssertEqual(export.completed, 1)
+        XCTAssertEqual(export.verificationDenominator, 0)
+        XCTAssertNil(export.verificationRate.value)
     }
 
     func testAggregateExportsContainNoRawRecordsOrPrivacySentinels() async throws {
@@ -496,14 +524,16 @@ final class PilotMetricsCoreTests: XCTestCase {
         _ outcome: PilotCatalogOutcome,
         _ activeMilliseconds: UInt32,
         recognition: UInt32? = nil,
-        corrections: UInt16 = 0
+        corrections: UInt16 = 0,
+        autofilled: Bool = false
     ) -> PilotCatalogMetric {
         PilotCatalogMetric(
             publicationKind: kind,
             outcome: outcome,
             activeMilliseconds: activeMilliseconds,
             recognitionToSaveMilliseconds: recognition,
-            manualCorrectionCount: corrections
+            manualCorrectionCount: corrections,
+            hadAutomaticFieldFill: autofilled
         )
     }
 

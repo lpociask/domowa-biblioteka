@@ -457,13 +457,16 @@ fileprivate extension BookMetadataCache {
 struct CachedBookMetadataProvider: BookMetadataProviding {
     private let upstream: any BookMetadataProviding
     private let cache: BookMetadataCache
+    private let observer: BookMetadataLookupObserver
 
     init(
         upstream: any BookMetadataProviding,
-        cache: BookMetadataCache = .shared
+        cache: BookMetadataCache = .shared,
+        observer: BookMetadataLookupObserver = .disabled
     ) {
         self.upstream = upstream
         self.cache = cache
+        self.observer = observer
     }
 
     func lookup(isbn rawISBN: String) async throws -> BookMetadata? {
@@ -471,43 +474,71 @@ struct CachedBookMetadataProvider: BookMetadataProviding {
         let isbn13 = try BookMetadataCache.normalizedISBN13(rawISBN)
 
         let cacheResult: BookMetadataCache.LookupResult
+        var cacheFailureWasRecorded = false
         do {
             cacheResult = try await cache.lookup(isbn: isbn13)
         } catch is CancellationError {
+            await observer.record(source: .metadataCache, outcome: .cancelled)
             throw CancellationError()
         } catch {
-            if Task.isCancelled { throw CancellationError() }
+            if Task.isCancelled {
+                await observer.record(source: .metadataCache, outcome: .cancelled)
+                throw CancellationError()
+            }
+            await observer.record(source: .metadataCache, outcome: .failed)
+            cacheFailureWasRecorded = true
             cacheResult = .miss
         }
 
         let staleMetadata: BookMetadata?
         switch cacheResult {
         case .fresh(let metadata):
+            await observer.record(source: .metadataCache, outcome: .found)
             return metadata
         case .notFound:
+            await observer.record(source: .metadataCache, outcome: .notFound)
             return nil
         case .stale(let metadata):
             staleMetadata = metadata
         case .miss:
             staleMetadata = nil
+            if !cacheFailureWasRecorded {
+                await observer.record(source: .metadataCache, outcome: .miss)
+            }
         }
 
         try Task.checkCancellation()
         do {
             let upstream = self.upstream
-            return try await cache.fetchSingleFlight(isbn: isbn13) {
+            let fetched = try await cache.fetchSingleFlight(isbn: isbn13) {
                 try Task.checkCancellation()
                 let fetched = try await upstream.lookup(isbn: isbn13)
                 try Task.checkCancellation()
                 return fetched.flatMap { $0.hasUsefulData ? $0 : nil }
             }
+            if staleMetadata != nil {
+                await observer.record(source: .metadataCache, outcome: .stale)
+            }
+            return fetched
         } catch is CancellationError {
+            if staleMetadata != nil {
+                await observer.record(source: .metadataCache, outcome: .stale)
+            }
             throw CancellationError()
         } catch let error as URLError where error.code == .cancelled {
+            if staleMetadata != nil {
+                await observer.record(source: .metadataCache, outcome: .stale)
+            }
             throw CancellationError()
         } catch {
-            if Task.isCancelled { throw CancellationError() }
+            if Task.isCancelled {
+                if staleMetadata != nil {
+                    await observer.record(source: .metadataCache, outcome: .stale)
+                }
+                throw CancellationError()
+            }
             if let staleMetadata {
+                await observer.record(source: .metadataCache, outcome: .staleFallback)
                 return staleMetadata
             }
             throw error
@@ -521,10 +552,16 @@ struct DefaultBookMetadataProvider: BookMetadataProviding {
     private let provider: CachedBookMetadataProvider
 
     init(
-        upstream: any BookMetadataProviding = CascadingBookMetadataProvider(),
-        cache: BookMetadataCache = .shared
+        upstream: (any BookMetadataProviding)? = nil,
+        cache: BookMetadataCache = .shared,
+        observer: BookMetadataLookupObserver = .disabled
     ) {
-        provider = CachedBookMetadataProvider(upstream: upstream, cache: cache)
+        let effectiveUpstream = upstream ?? CascadingBookMetadataProvider.production(observer: observer)
+        provider = CachedBookMetadataProvider(
+            upstream: effectiveUpstream,
+            cache: cache,
+            observer: observer
+        )
     }
 
     func lookup(isbn: String) async throws -> BookMetadata? {

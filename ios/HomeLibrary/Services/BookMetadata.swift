@@ -150,15 +150,54 @@ enum BookMetadataLookupError: Error, Equatable {
 /// A successful empty response means “no match”; an outage in one source does
 /// not prevent a later source from answering.
 struct CascadingBookMetadataProvider: BookMetadataProviding {
-    private let providers: [any BookMetadataProviding]
+    private struct Stage: Sendable {
+        /// Nil preserves lookup compatibility for custom cascades longer than
+        /// the production BN → Open Library pair without mislabelling metrics.
+        let pilotSource: PilotLookupSource?
+        let provider: any BookMetadataProviding
+    }
+
+    private let stages: [Stage]
+    private let observer: BookMetadataLookupObserver
 
     init(
         providers: [any BookMetadataProviding] = [
             BNMetadataService(),
             OpenLibraryMetadataService()
-        ]
+        ],
+        observer: BookMetadataLookupObserver = .disabled
     ) {
-        self.providers = providers
+        // Custom provider lists are never labelled by array position. The
+        // production initializer below supplies explicit BN/OL provenance.
+        stages = providers.map { Stage(pilotSource: nil, provider: $0) }
+        self.observer = observer
+    }
+
+    /// Explicitly-labelled two-stage cascade used by production and trace
+    /// tests. Custom arrays intentionally remain unlabelled so provider order
+    /// can never fabricate BN/Open Library provenance.
+    init(
+        nationalLibrary: any BookMetadataProviding,
+        openLibrary: any BookMetadataProviding,
+        observer: BookMetadataLookupObserver = .disabled
+    ) {
+        stages = [
+            Stage(pilotSource: .nationalLibrary, provider: nationalLibrary),
+            Stage(pilotSource: .openLibrary, provider: openLibrary)
+        ]
+        self.observer = observer
+    }
+
+    private init(productionObserver observer: BookMetadataLookupObserver) {
+        self.init(
+            nationalLibrary: BNMetadataService(),
+            openLibrary: OpenLibraryMetadataService(),
+            observer: observer
+        )
+    }
+
+    static func production(observer: BookMetadataLookupObserver = .disabled) -> Self {
+        Self(productionObserver: observer)
     }
 
     func lookup(isbn: String) async throws -> BookMetadata? {
@@ -173,22 +212,40 @@ struct CascadingBookMetadataProvider: BookMetadataProviding {
 
         var lastError: Error?
 
-        for provider in providers {
+        for stage in stages {
             try Task.checkCancellation()
 
             do {
-                let metadata = try await provider.lookup(isbn: isbn13)
+                let metadata = try await stage.provider.lookup(isbn: isbn13)
                 try Task.checkCancellation()
                 if let metadata, metadata.hasUsefulData {
+                    if let source = stage.pilotSource {
+                        await observer.record(source: source, outcome: .found)
+                    }
                     return metadata.addingFallbackCover(forISBN: isbn13)
                 }
+                if let source = stage.pilotSource {
+                    await observer.record(source: source, outcome: .notFound)
+                }
             } catch is CancellationError {
+                if let source = stage.pilotSource {
+                    await observer.record(source: source, outcome: .cancelled)
+                }
                 throw CancellationError()
             } catch let error as URLError where error.code == .cancelled {
+                if let source = stage.pilotSource {
+                    await observer.record(source: source, outcome: .cancelled)
+                }
                 throw CancellationError()
             } catch {
                 if Task.isCancelled {
+                    if let source = stage.pilotSource {
+                        await observer.record(source: source, outcome: .cancelled)
+                    }
                     throw CancellationError()
+                }
+                if let source = stage.pilotSource {
+                    await observer.record(source: source, outcome: .failed)
                 }
                 lastError = error
             }

@@ -68,3 +68,14 @@ No actionable P0, P1, or P2 visual differences remain. The native toolbar and pr
 ## Final result
 
 passed
+
+## Pilot dashboard addendum
+
+The opt-in pilot dashboard reuses the same verified paper/ink/orange system and was checked in these states:
+
+- final reference iPhone: `/Users/lpociask/Documents/ChatGPT/katalogowanie ksiazej i prasy/docs/screenshots/ios-pilot-reference.png`;
+- compact 375 × 667: `/private/tmp/HomeLibrary-pilot-compact-2.png`;
+- iPad regular width: `/private/tmp/HomeLibrary-pilot-ipad-2.png`;
+- compact accessibility XXXL after the final reflow: `/private/tmp/HomeLibrary-pilot-compact-ax-final2.png`.
+
+The final accessibility capture removes the previously hyphenated status heading and keeps the privacy explanation readable as one vertically flowing block. All dashboard content remains in a scroll view; normal compact and iPad states preserve the 5×12 masthead, thin rules, flat paper surfaces and single orange accent. No actionable P0–P2 visual issue remains.

@@ -38,6 +38,7 @@ struct ContentView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.scenePhase) private var scenePhase
     @Query(sort: \OwnedItem.addedAt, order: .reverse) private var items: [OwnedItem]
     @AppStorage("collectionID") private var collectionID = ""
     @AppStorage("collectionName") private var collectionName = "Moja biblioteka"
@@ -53,6 +54,16 @@ struct ContentView: View {
     @State private var showingImporter = false
     @State private var isImporting = false
     @State private var message: ExportMessage?
+    @State private var showingPilotDashboard = false
+    @State private var showingPilotVerifier = false
+    @State private var pilotVerificationOriginalData: Data?
+    @State private var pilotSearchTracker = PilotSearchTracker()
+
+    private let pilotMetricsStore: PilotMetricsStore
+
+    init(pilotMetricsStore: PilotMetricsStore = PilotMetricsStore()) {
+        self.pilotMetricsStore = pilotMetricsStore
+    }
 
     private var filteredItems: [OwnedItem] {
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -121,6 +132,12 @@ struct ContentView: View {
             .navigationDestination(isPresented: $showingPeriodicalOverview) {
                 PeriodicalOverviewView(items: items)
             }
+            .navigationDestination(isPresented: $showingPilotDashboard) {
+                PilotDashboardView(
+                    store: pilotMetricsStore,
+                    onVerifyRoundTrip: presentPilotRoundTripVerifier
+                )
+            }
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
             if let notice = mutationNotice {
@@ -141,6 +158,7 @@ struct ContentView: View {
         .sheet(item: $addItemRoute) { route in
             AddItemFlow(
                 startWithScanner: route.startsWithScanner,
+                pilotMetricsStore: pilotMetricsStore,
                 onMutation: { mutationNotice = nil }
             )
                 .presentationDetents([.large])
@@ -157,14 +175,26 @@ struct ContentView: View {
                       contentType: .json, defaultFilename: "domowa-biblioteka.json") { result in
             switch result {
             case .success:
+                recordPilotTransfer(direction: .export, outcome: .completed)
                 message = ExportMessage(title: "Eksport gotowy", details: "Plik JSON można wczytać na stronie WWW.")
             case .failure(let error):
+                guard !isFilePickerCancellation(error) else {
+                    recordPilotTransfer(direction: .export, outcome: .cancelled)
+                    return
+                }
+                recordPilotTransfer(direction: .export, outcome: .failed)
                 message = ExportMessage(title: "Nie udało się wyeksportować", details: error.localizedDescription)
             }
         }
         .fileImporter(isPresented: $showingImporter, allowedContentTypes: [.json], allowsMultipleSelection: false) { result in
             handleImportResult(result)
         }
+        .fileImporter(
+            isPresented: $showingPilotVerifier,
+            allowedContentTypes: [.json],
+            allowsMultipleSelection: false,
+            onCompletion: handlePilotVerificationResult
+        )
         .confirmationDialog(
             "Usunąć egzemplarz z kolekcji?",
             isPresented: deletionConfirmationBinding,
@@ -182,6 +212,21 @@ struct ContentView: View {
         }
         .alert(item: $message) { value in
             Alert(title: Text(value.title), message: Text(value.details), dismissButton: .default(Text("OK")))
+        }
+        .onChange(of: searchText) { _, newValue in
+            if let metric = pilotSearchTracker.searchTextChanged(
+                isEmpty: newValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ) {
+                recordPilotEvent(.search(metric))
+            }
+        }
+        .onChange(of: scenePhase) { _, newValue in
+            guard newValue != .active,
+                  let metric = pilotSearchTracker.background() else { return }
+            recordPilotEvent(.search(metric))
+        }
+        .onDisappear {
+            finishPilotSearchForNavigation()
         }
         .task {
             if collectionID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -226,6 +271,10 @@ struct ContentView: View {
             if !showingPeriodicalOverview, hasPeriodicals {
                 showingPeriodicalOverview = true
             }
+        case "pilot-dashboard":
+            if !showingPilotDashboard {
+                showingPilotDashboard = true
+            }
         default:
             break
         }
@@ -253,11 +302,15 @@ struct ContentView: View {
                     Label("Eksportuj JSON", systemImage: "square.and.arrow.up")
                 }
                 .disabled(items.isEmpty)
-                Button { showingImporter = true } label: {
+                Button(action: presentImporter) {
                     Label(isImporting ? "Importowanie…" : "Importuj JSON",
                           systemImage: isImporting ? "hourglass" : "square.and.arrow.down")
                 }
                 .disabled(isImporting)
+                Divider()
+                Button(action: presentPilotDashboard) {
+                    Label("Pilot 100–200", systemImage: "gauge.with.dots.needle.67percent")
+                }
             } label: {
                 Image(systemName: "ellipsis").font(.body.weight(.bold)).frame(width: 44, height: 44)
             }
@@ -305,7 +358,7 @@ struct ContentView: View {
                                        detail: "Wczytaj plik JSON utworzony na stronie WWW.",
                                        icon: isImporting ? "hourglass" : "square.and.arrow.down",
                                        accent: LibraryPalette.orangeText) {
-                        showingImporter = true
+                        presentImporter()
                     }
                     .disabled(isImporting)
                     .opacity(isImporting ? 0.55 : 1)
@@ -337,11 +390,15 @@ struct ContentView: View {
                         icon: "newspaper",
                         accent: LibraryPalette.orangeText
                     ) {
-                        showingPeriodicalOverview = true
+                        presentPeriodicalOverview()
                     }
                     .accessibilityIdentifier("collection.periodicalOverview")
                 }
-                EditorialSearchField(text: $searchText)
+                EditorialSearchField(text: $searchText) {
+                    if let metric = pilotSearchTracker.submit(resultCount: filteredItems.count) {
+                        recordPilotEvent(.search(metric))
+                    }
+                }
                 if filteredItems.isEmpty {
                     noSearchResults
                 } else {
@@ -374,6 +431,7 @@ struct ContentView: View {
             PublicationRow(
                 index: index + 1,
                 item: item,
+                openAction: { openPublication(item) },
                 editAction: { presentItemEditor(id: item.id, mode: .full) },
                 moveAction: { presentItemEditor(id: item.id, mode: .moveOnly) },
                 deleteAction: { requestDeletion(of: item) }
@@ -395,7 +453,30 @@ struct ContentView: View {
         }
     }
 
-    private func presentAddFlow(scanner: Bool) { addItemRoute = scanner ? .scanner : .manual }
+    private func presentAddFlow(scanner: Bool) {
+        finishPilotSearchForNavigation()
+        addItemRoute = scanner ? .scanner : .manual
+    }
+
+    private func presentImporter() {
+        finishPilotSearchForNavigation()
+        showingImporter = true
+    }
+
+    private func presentPilotDashboard() {
+        finishPilotSearchForNavigation()
+        showingPilotDashboard = true
+    }
+
+    private func presentPeriodicalOverview() {
+        finishPilotSearchForNavigation()
+        showingPeriodicalOverview = true
+    }
+
+    private func openPublication(_ item: OwnedItem) {
+        recordPilotSearchResultOpen()
+        navigationPath.append(item.persistentModelID)
+    }
 
     @ViewBuilder
     private func itemDestination(_ persistentID: PersistentIdentifier) -> some View {
@@ -428,6 +509,7 @@ struct ContentView: View {
     }
 
     private func presentItemEditor(id: UUID, mode: ItemEditFlow.Mode) {
+        finishPilotSearchForNavigation()
         do {
             let prepared = try CatalogItemEditingService(modelContext: modelContext).prepare(itemID: id)
             editItemRoute = EditItemRoute(prepared: prepared, mode: mode)
@@ -455,8 +537,10 @@ struct ContentView: View {
                 message: "„\(deletedTitle)” · \(locationDisplay(receipt.item.locationPathText))",
                 receipt: .deletion(receipt)
             )
+            recordPilotMutation(.delete, outcome: .completed)
             announceMutation("Usunięto egzemplarz. Możesz cofnąć tę operację.")
         } catch {
+            recordPilotMutation(.delete, outcome: .failed)
             message = ExportMessage(title: "Nie udało się usunąć", details: error.localizedDescription)
         }
     }
@@ -484,6 +568,7 @@ struct ContentView: View {
             receipt: .edit(result)
         )
         mutationNotice = notice
+        recordPilotMutation(mode == .moveOnly ? .move : .edit, outcome: .completed)
         announceAfterDismissal(
             "\(title). Możesz cofnąć tę operację.",
             noticeID: notice.id
@@ -500,8 +585,10 @@ struct ContentView: View {
                 _ = try CatalogItemLifecycleService(modelContext: modelContext).restore(receipt)
             }
             mutationNotice = nil
+            recordPilotMutation(.undo, outcome: .completed)
             announceMutation("Cofnięto ostatnią zmianę.")
         } catch {
+            recordPilotMutation(.undo, outcome: .failed)
             message = ExportMessage(title: "Nie udało się cofnąć", details: error.localizedDescription)
         }
     }
@@ -526,6 +613,7 @@ struct ContentView: View {
     }
 
     private func prepareExport() {
+        finishPilotSearchForNavigation()
         do {
             let trimmed = collectionID.trimmingCharacters(in: .whitespacesAndNewlines)
             let stableID: String
@@ -539,6 +627,7 @@ struct ContentView: View {
             exportDocument = CollectionJSONDocument(data: try CollectionExporter.encode(payload))
             showingExporter = true
         } catch {
+            recordPilotTransfer(direction: .export, outcome: .failed)
             message = ExportMessage(title: "Nie udało się przygotować eksportu", details: error.localizedDescription)
         }
     }
@@ -546,10 +635,15 @@ struct ContentView: View {
     private func handleImportResult(_ result: Result<[URL], Error>) {
         switch result {
         case .failure(let error):
-            guard !isFilePickerCancellation(error) else { return }
+            guard !isFilePickerCancellation(error) else {
+                recordPilotTransfer(direction: .import, outcome: .cancelled)
+                return
+            }
+            recordPilotTransfer(direction: .import, outcome: .failed)
             message = ExportMessage(title: "Nie udało się zaimportować", details: error.localizedDescription)
         case .success(let urls):
             guard let url = urls.first else {
+                recordPilotTransfer(direction: .import, outcome: .failed)
                 message = ExportMessage(title: "Nie udało się zaimportować",
                                         details: CocoaError(.fileNoSuchFile).localizedDescription)
                 return
@@ -569,13 +663,156 @@ struct ContentView: View {
                         collectionID = report.collectionID
                         collectionName = report.collectionName
                     }
+                    recordPilotTransfer(direction: .import, outcome: .completed)
                     message = ExportMessage(title: "Import zakończony", details: report.summary)
                 } catch is CancellationError {
-                    // Anulowanie nie wymaga komunikatu.
+                    recordPilotTransfer(direction: .import, outcome: .cancelled)
                 } catch {
+                    recordPilotTransfer(direction: .import, outcome: .failed)
                     message = ExportMessage(title: "Nie udało się zaimportować", details: error.localizedDescription)
                 }
             }
+        }
+    }
+
+    private func recordPilotSearchResultOpen() {
+        guard let metric = pilotSearchTracker.openResult() else { return }
+        recordPilotEvent(.search(metric))
+    }
+
+    private func finishPilotSearchForNavigation() {
+        guard let metric = pilotSearchTracker.disappear() else { return }
+        recordPilotEvent(.search(metric))
+    }
+
+    private func presentPilotRoundTripVerifier() {
+        finishPilotSearchForNavigation()
+        do {
+            let payload = CollectionExporter.makeExport(
+                items: items,
+                collectionID: collectionID.nilIfBlank ?? UUID().uuidString,
+                collectionName: collectionName
+            )
+            pilotVerificationOriginalData = try CollectionExporter.encode(payload)
+            showingPilotVerifier = true
+        } catch {
+            message = ExportMessage(
+                title: "Nie udało się przygotować weryfikacji",
+                details: error.localizedDescription
+            )
+            recordPilotTransfer(direction: .roundTrip, outcome: .failed)
+        }
+    }
+
+    private func handlePilotVerificationResult(_ result: Result<[URL], Error>) {
+        defer { pilotVerificationOriginalData = nil }
+        switch result {
+        case .failure(let error):
+            if isFilePickerCancellation(error) {
+                recordPilotTransfer(direction: .roundTrip, outcome: .cancelled)
+            } else {
+                recordPilotTransfer(direction: .roundTrip, outcome: .failed)
+                message = ExportMessage(
+                    title: "Nie udało się sprawdzić pliku",
+                    details: error.localizedDescription
+                )
+            }
+        case .success(let urls):
+            guard let originalData = pilotVerificationOriginalData,
+                  let url = urls.first else {
+                recordPilotTransfer(direction: .roundTrip, outcome: .failed)
+                return
+            }
+            Task { @MainActor in
+                do {
+                    let restoredData = try await Task.detached(priority: .userInitiated) {
+                        let didAccess = url.startAccessingSecurityScopedResource()
+                        defer { if didAccess { url.stopAccessingSecurityScopedResource() } }
+                        let values = try url.resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey])
+                        guard values.isRegularFile == true else {
+                            throw PilotVerificationFileReadError.notARegularFile
+                        }
+                        guard let fileSize = values.fileSize,
+                              fileSize <= PilotCollectionVerifier.maximumFileSizeBytes else {
+                            throw PilotVerificationFileReadError.tooLarge
+                        }
+                        return try Data(contentsOf: url, options: [.mappedIfSafe])
+                    }.value
+                    let report = await Task.detached(priority: .userInitiated) {
+                        PilotCollectionVerifier.verify(
+                            original: originalData,
+                            restored: restoredData
+                        )
+                    }.value
+                    let outcome: PilotTransferOutcome
+                    switch report.outcome {
+                    case .verified:
+                        outcome = .verified
+                    case .mismatched:
+                        outcome = .mismatch
+                    case .originalTooLarge, .restoredTooLarge, .invalidOriginal, .invalidRestored:
+                        outcome = .failed
+                    }
+                    recordPilotTransfer(direction: .roundTrip, outcome: outcome)
+                    message = ExportMessage(
+                        title: pilotVerificationTitle(report),
+                        details: pilotVerificationSummary(report)
+                    )
+                } catch {
+                    recordPilotTransfer(direction: .roundTrip, outcome: .failed)
+                    message = ExportMessage(
+                        title: "Nie udało się sprawdzić pliku",
+                        details: error.localizedDescription
+                    )
+                }
+            }
+        }
+    }
+
+    private func pilotVerificationSummary(_ report: PilotCollectionVerificationReport) -> String {
+        if report.isVerified {
+            let count = report.restoredCounts?.ownedItems ?? 0
+            return "Plik zachowuje publikacje, egzemplarze, lokalizacje i metadane. Sprawdzono \(count) egzemplarzy bez zmiany bieżącej kolekcji."
+        }
+        switch report.outcome {
+        case .invalidRestored, .restoredTooLarge:
+            return "Wybrany plik nie jest prawidłową kolekcją v1 albo przekracza bezpieczny limit."
+        case .invalidOriginal, .originalTooLarge:
+            return "Nie udało się zbudować bezpiecznego punktu odniesienia z bieżącej kolekcji."
+        case .mismatched:
+            return "Plik różni się liczbą rekordów, tożsamością, lokalizacjami lub metadanymi. Bieżąca kolekcja nie została zmieniona."
+        case .verified:
+            return "Weryfikacja zakończona."
+        }
+    }
+
+    private func pilotVerificationTitle(_ report: PilotCollectionVerificationReport) -> String {
+        switch report.outcome {
+        case .verified:
+            return "Baza odtworzona poprawnie"
+        case .mismatched:
+            return "Wykryto rozbieżność"
+        case .invalidRestored, .restoredTooLarge:
+            return "Nie można zweryfikować pliku"
+        case .invalidOriginal, .originalTooLarge:
+            return "Nie można przygotować porównania"
+        }
+    }
+
+    private func recordPilotMutation(_ action: PilotMutationAction, outcome: PilotOperationOutcome) {
+        recordPilotEvent(.mutation(PilotMutationMetric(action: action, outcome: outcome)))
+    }
+
+    private func recordPilotTransfer(
+        direction: PilotTransferDirection,
+        outcome: PilotTransferOutcome
+    ) {
+        recordPilotEvent(.transfer(PilotTransferMetric(direction: direction, outcome: outcome)))
+    }
+
+    private func recordPilotEvent(_ event: PilotMetricEvent) {
+        Task {
+            _ = try? await pilotMetricsStore.record(event)
         }
     }
 
@@ -584,6 +821,7 @@ struct ContentView: View {
 
 private struct EditorialSearchField: View {
     @Binding var text: String
+    let onSubmit: () -> Void
 
     var body: some View {
         HStack(spacing: LibrarySpacing.small) {
@@ -598,6 +836,7 @@ private struct EditorialSearchField: View {
                 .submitLabel(.search)
                 .autocorrectionDisabled()
                 .accessibilityLabel("Szukaj w kolekcji")
+                .onSubmit(onSubmit)
 
             if !text.isEmpty {
                 Button { text = "" } label: {
@@ -653,6 +892,7 @@ private struct EmptyCollectionStep: View {
 private struct PublicationRow: View {
     let index: Int
     let item: OwnedItem
+    let openAction: () -> Void
     let editAction: () -> Void
     let moveAction: () -> Void
     let deleteAction: () -> Void
@@ -660,7 +900,7 @@ private struct PublicationRow: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: LibrarySpacing.xSmall) {
-            NavigationLink(value: item.persistentModelID) {
+            Button(action: openAction) {
                 HStack(alignment: .top, spacing: LibrarySpacing.small) {
                     if let publication = item.publication,
                        let coverURL = publication.resolvedCoverURL,
@@ -753,6 +993,20 @@ private func isFilePickerCancellation(_ error: Error) -> Bool {
     if error is CancellationError { return true }
     let cocoaError = error as NSError
     return cocoaError.domain == NSCocoaErrorDomain && cocoaError.code == CocoaError.Code.userCancelled.rawValue
+}
+
+private enum PilotVerificationFileReadError: LocalizedError {
+    case notARegularFile
+    case tooLarge
+
+    var errorDescription: String? {
+        switch self {
+        case .notARegularFile:
+            return "Wybrany element nie jest zwykłym plikiem JSON."
+        case .tooLarge:
+            return "Plik przekracza bezpieczny limit 25 MB."
+        }
+    }
 }
 
 private struct ExportMessage: Identifiable {

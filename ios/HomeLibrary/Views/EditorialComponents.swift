@@ -5,6 +5,7 @@ struct LibraryMasthead: View {
     var eyebrow: String?
     var subtitle: String?
     var compact = false
+    var constrainAccessibilityHeight = false
 
     @ScaledMetric(relativeTo: .largeTitle) private var regularTitleSize = 48.0
     @ScaledMetric(relativeTo: .title) private var compactTitleSize = 31.0
@@ -17,6 +18,12 @@ struct LibraryMasthead: View {
                     .font(.caption2.weight(.bold))
                     .tracking(1.6)
                     .foregroundStyle(LibraryPalette.mutedInk)
+                    .lineLimit(
+                        dynamicTypeSize.isAccessibilitySize
+                            ? (constrainAccessibilityHeight ? 2 : nil)
+                            : 1
+                    )
+                    .fixedSize(horizontal: false, vertical: true)
             }
 
             HStack(alignment: .top, spacing: 7) {
@@ -28,7 +35,11 @@ struct LibraryMasthead: View {
                     ))
                     .fontWidth(.condensed)
                     .tracking(compact ? -1.2 : -1.8)
-                    .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : (compact ? 2 : 3))
+                    .lineLimit(
+                        dynamicTypeSize.isAccessibilitySize
+                            ? (constrainAccessibilityHeight ? 3 : nil)
+                            : (compact ? 2 : 3)
+                    )
                     .minimumScaleFactor(dynamicTypeSize.isAccessibilitySize ? 1 : 0.55)
                     .allowsTightening(!dynamicTypeSize.isAccessibilitySize)
                     .fixedSize(horizontal: false, vertical: dynamicTypeSize.isAccessibilitySize)
@@ -52,6 +63,9 @@ struct LibraryMasthead: View {
                     .lineSpacing(3)
                     .foregroundStyle(LibraryPalette.mutedInk)
                     .fixedSize(horizontal: false, vertical: true)
+                    .lineLimit(
+                        dynamicTypeSize.isAccessibilitySize && constrainAccessibilityHeight ? 6 : nil
+                    )
             }
         }
         .foregroundStyle(LibraryPalette.ink)
@@ -331,6 +345,7 @@ struct EditorialStatusBand: View {
     var message: String?
     var icon: String?
     var accent: Color = LibraryPalette.orangeText
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var body: some View {
         HStack(alignment: .top, spacing: LibrarySpacing.small) {
@@ -345,7 +360,9 @@ struct EditorialStatusBand: View {
             VStack(alignment: .leading, spacing: 7) {
                 Text(title.uppercased())
                     .font(.caption.weight(.bold))
-                    .tracking(1.35)
+                    .tracking(dynamicTypeSize.isAccessibilitySize ? 0.2 : 1.35)
+                    .lineLimit(dynamicTypeSize.isAccessibilitySize ? 4 : nil)
+                    .fixedSize(horizontal: false, vertical: true)
 
                 if let message, !message.isEmpty {
                     Text(message)

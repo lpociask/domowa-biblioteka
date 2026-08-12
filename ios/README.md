@@ -15,6 +15,7 @@ Natywny vertical slice dla iOS 17+, bez zewnętrznych zależności. Dane są prz
 - uzupełnianie książki po ISBN w kaskadzie Biblioteka Narodowa → Open Library,
 - okładki Open Library oraz trwałe, odbudowywalne cache metadanych i obrazów.
 - lokalny OCR okładki prasy oraz read-only analiza serii, luk, wielu kopii i powtórzonych rekordów.
+- dobrowolny, lokalny panel pilota 100–200 z agregowanym raportem JSON/CSV i bezpiecznym verifierem round-trip.
 
 ## Kody prasy 977
 
@@ -55,6 +56,14 @@ Import v1:
 - przy imporcie do pustej bazy przyjmuje nazwę i ID kolekcji z pliku.
 
 Plik może zawierać prywatne nazwy pomieszczeń i notatki. Użytkownik wybiera jego miejsce docelowe; prawdziwego eksportu nie należy commitować ani publikować na GitHub Pages.
+
+## Pilot 100–200
+
+Panel znajduje się w menu `Więcej → Pilot 100–200`. Pomiar jest domyślnie wyłączony i nie ma wpływu na zapis kolekcji. Po włączeniu mierzy aktywny czas katalogowania (bez czasu w tle), faktycznie wywołane źródła metadanych, ręczne korekty, ponowne użycie lokalizacji, OCR, wyszukiwanie, mutacje i transfer pliku.
+
+Lokalny store nie przyjmuje tekstów użytkownika ani identyfikatorów kolekcji. Zachowuje tylko zamknięte enumy i ograniczone liczby; raport udostępnia wyłącznie agregaty. Wyłączenie zatrzymuje nowe zdarzenia, reset usuwa dotychczasowe pomiary.
+
+Akcja `Sprawdź odtworzenie przez WWW` porównuje bieżący eksport z wybranym plikiem tylko w pamięci i nie modyfikuje SwiftData. Zwykły import/eksport nie jest zaliczany jako zweryfikowany round-trip.
 
 ## Uruchomienie
 

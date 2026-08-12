@@ -34,9 +34,28 @@ struct AddItemFlow: View {
         let suppressedCode: String?
     }
 
+    /// Values filled automatically during this attempt. They live only in
+    /// memory and are reduced to a count before a pilot metric is recorded.
+    private enum PilotTrackedField: Hashable, Sendable {
+        case title, subtitle, authors, language, publisher, publicationYear
+        case isbn, issn, ean, barcode
+        case issueNumber, issueVolume, issueDate
+    }
+
+    private static let pilotIdentifierFields: [PilotTrackedField] = [
+        .isbn, .issn, .ean, .barcode
+    ]
+    private static let pilotMetadataFields: [PilotTrackedField] = [
+        .title, .subtitle, .authors, .language, .publisher, .publicationYear
+    ]
+    private static let pilotPeriodicalFields: [PilotTrackedField] = [
+        .issueNumber, .issueVolume, .issueDate
+    ]
+
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.scenePhase) private var scenePhase
     @Query(sort: \OwnedItem.addedAt, order: .reverse) private var existingItems: [OwnedItem]
 
     @State private var step: Step
@@ -74,18 +93,35 @@ struct AddItemFlow: View {
     @State private var serialModeEnabled: Bool
     @State private var forceNewPeriodicalPublication = false
     @State private var showsPeriodicalCoverOCR = false
+    @State private var pilotAttemptTracker = PilotAttemptTracker(publicationKind: .book)
+    @State private var pilotAttemptMetricRecorded = false
+    @State private var pilotAttemptStartingLocation = ""
+    @State private var pilotAutofillCorrections = PilotAutofillCorrectionTracker<PilotTrackedField>()
+    @State private var didStartInitialPilotAttempt = false
+    @State private var pilotDuplicateDecisionRecorded = false
 
     private let metadataProvider: any BookMetadataProviding
+    private let pilotMetricsStore: PilotMetricsStore?
     private let onMutation: (() -> Void)?
 
     init(
         startWithScanner: Bool,
-        metadataProvider: any BookMetadataProviding = DefaultBookMetadataProvider(),
+        metadataProvider: (any BookMetadataProviding)? = nil,
+        pilotMetricsStore: PilotMetricsStore? = nil,
         onMutation: (() -> Void)? = nil
     ) {
         _step = State(initialValue: startWithScanner ? .scanner : .form)
         _serialModeEnabled = State(initialValue: startWithScanner)
-        self.metadataProvider = metadataProvider
+        let lookupObserver: BookMetadataLookupObserver
+        if let pilotMetricsStore {
+            lookupObserver = .recording(in: pilotMetricsStore)
+        } else {
+            lookupObserver = .disabled
+        }
+        self.metadataProvider = metadataProvider ?? DefaultBookMetadataProvider(
+            observer: lookupObserver
+        )
+        self.pilotMetricsStore = pilotMetricsStore
         self.onMutation = onMutation
     }
 
@@ -110,6 +146,7 @@ struct AddItemFlow: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button {
+                        finishPilotAttempt(cancelled: true)
                         dismiss()
                     } label: {
                         if dynamicTypeSize.isAccessibilitySize {
@@ -127,8 +164,21 @@ struct AddItemFlow: View {
         }
         .libraryLightAppearance()
         .interactiveDismissDisabled(step == .form && hasEnteredData)
+        .onAppear {
+            guard !didStartInitialPilotAttempt else { return }
+            didStartInitialPilotAttempt = true
+            startPilotAttemptIfNeeded()
+        }
+        .onChange(of: scenePhase) { _, newPhase in
+            if newPhase == .active {
+                _ = pilotAttemptTracker.resume()
+            } else {
+                _ = pilotAttemptTracker.pause()
+            }
+        }
         .onDisappear {
             metadataLookupTask?.cancel()
+            finishPilotAttempt(cancelled: true)
         }
         .alert("Sprawdź dane", isPresented: Binding(
             get: { validationMessage != nil },
@@ -143,6 +193,7 @@ struct AddItemFlow: View {
                 existingIssueNumber: issueNumber,
                 existingIssueVolume: issueVolume,
                 existingIssueDate: issueDate,
+                pilotMetricsStore: pilotMetricsStore,
                 onApply: applyPeriodicalOCRSelection
             )
             .presentationDetents([.large])
@@ -157,8 +208,16 @@ struct AddItemFlow: View {
             initiallySuppressedCode: recentSaveNotice?.suppressedCode,
             onUndoRecentSave: recentSaveNotice == nil ? nil : undoRecentSave
         ) { value, cameFromCamera in
+            startPilotAttemptIfNeeded()
+            pilotDuplicateDecisionRecorded = false
             isSaving = false
+            let pilotValuesBeforeApply = currentPilotValues(for: Self.pilotIdentifierFields)
             let scannedISBN = apply(identifier: value)
+            _ = pilotAttemptTracker.markRecognition()
+            capturePilotAutomaticChanges(
+                in: Self.pilotIdentifierFields,
+                from: pilotValuesBeforeApply
+            )
             metadataSource = cameFromCamera ? "scan" : "manual"
             step = .form
             if let scannedISBN {
@@ -998,6 +1057,7 @@ struct AddItemFlow: View {
     }
 
     private func applyPeriodicalOCRSelection(_ selection: PeriodicalCoverOCRSelection) {
+        let pilotValuesBeforeApply = currentPilotValues(for: Self.pilotPeriodicalFields)
         var appliedFields: [String] = []
         if issueNumber.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
            let value = selection.issueNumber {
@@ -1015,6 +1075,11 @@ struct AddItemFlow: View {
             appliedFields.append("data")
         }
         guard !appliedFields.isEmpty else { return }
+        _ = pilotAttemptTracker.markRecognition()
+        capturePilotAutomaticChanges(
+            in: Self.pilotPeriodicalFields,
+            from: pilotValuesBeforeApply
+        )
         metadataSource = "ocr"
         UINotificationFeedbackGenerator().notificationOccurred(.success)
         UIAccessibility.post(
@@ -1034,6 +1099,9 @@ struct AddItemFlow: View {
 
             if result.didUndo {
                 _ = catalogingSession.undoLastSaved(itemID: recentSaveNotice.itemID)
+                recordPilotEvent(
+                    .mutation(PilotMutationMetric(action: .undo, outcome: .completed))
+                )
                 UINotificationFeedbackGenerator().notificationOccurred(.success)
                 UIAccessibility.post(
                     notification: .announcement,
@@ -1047,11 +1115,15 @@ struct AddItemFlow: View {
             }
             self.recentSaveNotice = nil
         } catch {
+            recordPilotEvent(
+                .mutation(PilotMutationMetric(action: .undo, outcome: .failed))
+            )
             validationMessage = "Nie udało się cofnąć ostatniego dodania: \(error.localizedDescription)"
         }
     }
 
     private func startRescan() {
+        recordPilotDuplicatePreventionIfNeeded()
         clearPublicationFields(preserveCopyFields: true)
         step = .scanner
     }
@@ -1060,6 +1132,9 @@ struct AddItemFlow: View {
         isSaving = false
         serialModeEnabled = startWithScanner
         clearPublicationFields(preserveCopyFields: false)
+        // Choosing an explicit next action is the first real interaction for
+        // this object, so its timing can begin immediately.
+        resetPilotAttemptForNextPublication(startImmediately: true)
         step = startWithScanner ? .scanner : .form
     }
 
@@ -1090,6 +1165,7 @@ struct AddItemFlow: View {
         validationMessage = nil
         showsMoreData = false
         forceNewPeriodicalPublication = false
+        pilotDuplicateDecisionRecorded = false
 
         if !preserveCopyFields {
             // Lokalizacja zostaje: to najważniejsze przy seryjnym skanowaniu półki.
@@ -1162,7 +1238,13 @@ struct AddItemFlow: View {
                     return
                 }
 
+                let pilotValuesBeforeApply = currentPilotValues(for: Self.pilotMetadataFields)
                 apply(metadata: metadata, preservingChangesSince: snapshot)
+                _ = pilotAttemptTracker.markRecognition()
+                capturePilotAutomaticChanges(
+                    in: Self.pilotMetadataFields,
+                    from: pilotValuesBeforeApply
+                )
                 metadataSource = metadata.source.rawValue
                 metadataLookupState = .enriched(metadata.source)
             } catch is CancellationError {
@@ -1339,6 +1421,11 @@ struct AddItemFlow: View {
         do {
             let result = try CatalogingService(modelContext: modelContext).save(request)
             onMutation?()
+            if forceNewPublication || result.duplicateKind == .possibleRepeatScan {
+                recordPilotDuplicateDecision(.duplicateOverride, outcome: .completed)
+            }
+            recordCompletedPilotAttempt()
+            recordPilotLocationOutcome()
             catalogingSession.recordSaved(itemID: result.item.id, savedAt: now)
             savedTitle = result.publication.title
             savedLocation = catalogingSession.canonicalLocation.canonical
@@ -1353,6 +1440,9 @@ struct AddItemFlow: View {
                     suppressedCode: scannedCode.isEmpty ? nil : scannedCode
                 )
                 clearPublicationFields(preserveCopyFields: false)
+                // Merely waiting for another book is not an attempt. The ready
+                // tracker starts lazily when a new scan/manual action arrives.
+                resetPilotAttemptForNextPublication(startImmediately: false)
                 step = .scanner
                 UINotificationFeedbackGenerator().notificationOccurred(.success)
                 UIAccessibility.post(
@@ -1363,8 +1453,155 @@ struct AddItemFlow: View {
                 step = .saved
             }
         } catch {
+            if forceNewPublication || match?.kind == .possibleRepeatScan {
+                recordPilotDuplicateDecision(.duplicateOverride, outcome: .failed, terminal: false)
+            }
             isSaving = false
             validationMessage = "Nie udało się zapisać publikacji: \(error.localizedDescription)"
+        }
+    }
+
+    private func startPilotAttemptIfNeeded() {
+        guard pilotAttemptTracker.state == .ready else { return }
+        pilotAttemptStartingLocation = LocationPath(catalogingSession.locationText).canonical
+        _ = pilotAttemptTracker.start()
+        if scenePhase != .active {
+            _ = pilotAttemptTracker.pause()
+        }
+    }
+
+    private func resetPilotAttemptForNextPublication(startImmediately: Bool) {
+        pilotAttemptTracker = PilotAttemptTracker(publicationKind: .book)
+        pilotAttemptMetricRecorded = false
+        pilotAutofillCorrections = PilotAutofillCorrectionTracker()
+        pilotAttemptStartingLocation = LocationPath(catalogingSession.locationText).canonical
+        if startImmediately {
+            startPilotAttemptIfNeeded()
+        }
+    }
+
+    private func finishPilotAttempt(cancelled: Bool) {
+        if cancelled {
+            recordPilotDuplicatePreventionIfNeeded()
+        }
+        guard cancelled,
+              !pilotAttemptMetricRecorded,
+              let metric = pilotAttemptTracker.cancel(
+                publicationKind: pilotPublicationKind,
+                manualCorrectionCount: pilotManualCorrectionCount,
+                hadAutomaticFieldFill: pilotAutofillCorrections.hasAutomaticFieldFill
+              ) else {
+            return
+        }
+        pilotAttemptMetricRecorded = true
+        recordPilotEvent(.catalog(metric))
+    }
+
+    private func recordCompletedPilotAttempt() {
+        guard !pilotAttemptMetricRecorded,
+              let metric = pilotAttemptTracker.complete(
+                publicationKind: pilotPublicationKind,
+                manualCorrectionCount: pilotManualCorrectionCount,
+                hadAutomaticFieldFill: pilotAutofillCorrections.hasAutomaticFieldFill
+              ) else {
+            return
+        }
+        pilotAttemptMetricRecorded = true
+        recordPilotEvent(.catalog(metric))
+    }
+
+    private var pilotPublicationKind: PilotPublicationKind {
+        publicationType == .periodical ? .periodical : .book
+    }
+
+    private var pilotManualCorrectionCount: Int {
+        pilotAutofillCorrections.correctionCount { field in
+            currentPilotValue(for: field)
+        }
+    }
+
+    private func currentPilotValues(
+        for fields: [PilotTrackedField]
+    ) -> [PilotTrackedField: String] {
+        Dictionary(uniqueKeysWithValues: fields.map { field in
+            (field, currentPilotValue(for: field))
+        })
+    }
+
+    private func capturePilotAutomaticChanges(
+        in fields: [PilotTrackedField],
+        from previousValues: [PilotTrackedField: String]
+    ) {
+        var corrections = pilotAutofillCorrections
+        for field in fields {
+            guard let previousValue = previousValues[field] else { continue }
+            _ = corrections.recordAutomaticChange(
+                for: field,
+                from: previousValue,
+                to: currentPilotValue(for: field)
+            )
+        }
+        pilotAutofillCorrections = corrections
+    }
+
+    private func currentPilotValue(for field: PilotTrackedField) -> String {
+        switch field {
+        case .title: title
+        case .subtitle: subtitle
+        case .authors: authors
+        case .language: language
+        case .publisher: publisher
+        case .publicationYear: publicationYear
+        case .isbn: isbn13
+        case .issn: issn
+        case .ean: ean
+        case .barcode: barcode
+        case .issueNumber: issueNumber
+        case .issueVolume: issueVolume
+        case .issueDate: issueDate
+        }
+    }
+
+    private func recordPilotLocationOutcome() {
+        let current = LocationPath(catalogingSession.locationText).canonical
+        let outcome: PilotLocationOutcome
+        if current.isEmpty {
+            outcome = .none
+        } else if pilotAttemptStartingLocation.isEmpty {
+            outcome = .freshSelection
+        } else if LocationPath(current) == LocationPath(pilotAttemptStartingLocation) {
+            outcome = .reusedPrevious
+        } else {
+            outcome = .changed
+        }
+        recordPilotEvent(.location(PilotLocationMetric(outcome: outcome)))
+    }
+
+    /// A possible repeat scan is a guardrail, not a bibliographic fact. We only
+    /// count an explicit outcome: rescan/dismiss prevents it, while a successful
+    /// save (or the explicit periodical override) accepts it.
+    private func recordPilotDuplicatePreventionIfNeeded() {
+        guard !pilotAttemptMetricRecorded,
+              duplicateMatch?.kind == .possibleRepeatScan else { return }
+        recordPilotDuplicateDecision(.duplicatePrevented, outcome: .completed)
+    }
+
+    private func recordPilotDuplicateDecision(
+        _ action: PilotMutationAction,
+        outcome: PilotOperationOutcome,
+        terminal: Bool = true
+    ) {
+        guard !pilotDuplicateDecisionRecorded else { return }
+        if terminal {
+            pilotDuplicateDecisionRecorded = true
+        }
+        recordPilotEvent(.mutation(PilotMutationMetric(action: action, outcome: outcome)))
+    }
+
+    private func recordPilotEvent(_ event: PilotMetricEvent) {
+        guard let pilotMetricsStore else { return }
+        Task {
+            _ = try? await pilotMetricsStore.record(event)
         }
     }
 }

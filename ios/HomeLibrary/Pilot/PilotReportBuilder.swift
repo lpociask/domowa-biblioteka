@@ -39,12 +39,18 @@ struct PilotLookupSourceReport: Codable, Equatable, Sendable {
     let attempts: Int
     let found: Int
     let notFound: Int
+    let miss: Int
+    let stale: Int
+    let staleFallback: Int
     let failed: Int
     let cancelled: Int
     /// Denominator for definitive provider answers: found + notFound.
     let resolvedDenominator: Int
     /// Found divided by every attempt, including transport failures and cancellation.
     let foundRate: PilotRate
+    /// Positive, negative or stale-fallback cache answers divided by cache attempts.
+    /// It is intentionally 0/0 for BN and Open Library.
+    let usableCacheRate: PilotRate
 }
 
 struct PilotLocationReport: Codable, Equatable, Sendable {
@@ -87,10 +93,12 @@ struct PilotMutationActionReport: Codable, Equatable, Sendable {
 struct PilotTransferDirectionReport: Codable, Equatable, Sendable {
     let direction: PilotTransferDirection
     let attempts: Int
+    let completed: Int
     let verified: Int
     let mismatch: Int
     let failed: Int
     let cancelled: Int
+    let verificationDenominator: Int
     let verificationRate: PilotRate
 }
 
@@ -136,22 +144,29 @@ enum PilotReportBuilder {
             )
         }
 
-        let completedCatalog = catalogMetrics.filter { $0.outcome == .completed }
-        let correctedItems = completedCatalog.filter { $0.manualCorrectionCount > 0 }.count
-        let manualCorrections = completedCatalog.reduce(0) {
+        // Correction quality is meaningful only for completed book attempts in
+        // which automation filled a tracked field. Manual-only entries and
+        // periodicals use different workflows and must not dilute this KPI.
+        let correctionEligibleCatalog = catalogMetrics.filter {
+            $0.outcome == .completed
+                && $0.publicationKind == .book
+                && $0.hadAutomaticFieldFill
+        }
+        let correctedItems = correctionEligibleCatalog.filter { $0.manualCorrectionCount > 0 }.count
+        let manualCorrections = correctionEligibleCatalog.reduce(0) {
             $0 + Int($1.manualCorrectionCount)
         }
         let corrections = PilotCorrectionReport(
-            completedItems: completedCatalog.count,
+            completedItems: correctionEligibleCatalog.count,
             correctedItems: correctedItems,
             manualCorrections: manualCorrections,
             correctedItemRate: PilotRate(
                 numerator: correctedItems,
-                denominator: completedCatalog.count
+                denominator: correctionEligibleCatalog.count
             ),
             correctionsPerCompletedItem: PilotRate(
                 numerator: manualCorrections,
-                denominator: completedCatalog.count
+                denominator: correctionEligibleCatalog.count
             )
         )
 
@@ -163,6 +178,9 @@ enum PilotReportBuilder {
             let attempts = lookupMetrics.filter { $0.source == source }
             let found = attempts.count { $0.outcome == .found }
             let notFound = attempts.count { $0.outcome == .notFound }
+            let miss = attempts.count { $0.outcome == .miss }
+            let stale = attempts.count { $0.outcome == .stale }
+            let staleFallback = attempts.count { $0.outcome == .staleFallback }
             let failed = attempts.count { $0.outcome == .failed }
             let cancelled = attempts.count { $0.outcome == .cancelled }
             return PilotLookupSourceReport(
@@ -170,10 +188,17 @@ enum PilotReportBuilder {
                 attempts: attempts.count,
                 found: found,
                 notFound: notFound,
+                miss: miss,
+                stale: stale,
+                staleFallback: staleFallback,
                 failed: failed,
                 cancelled: cancelled,
                 resolvedDenominator: found + notFound,
-                foundRate: PilotRate(numerator: found, denominator: attempts.count)
+                foundRate: PilotRate(numerator: found, denominator: attempts.count),
+                usableCacheRate: PilotRate(
+                    numerator: source == .metadataCache ? found + notFound + staleFallback : 0,
+                    denominator: source == .metadataCache ? attempts.count : 0
+                )
             )
         }
 
@@ -255,17 +280,21 @@ enum PilotReportBuilder {
         }
         let transfers = PilotTransferDirection.allCases.map { direction in
             let attempts = transferMetrics.filter { $0.direction == direction }
+            let completed = attempts.count { $0.outcome == .completed }
             let verified = attempts.count { $0.outcome == .verified }
+            let mismatch = attempts.count { $0.outcome == .mismatch }
             return PilotTransferDirectionReport(
                 direction: direction,
                 attempts: attempts.count,
+                completed: completed,
                 verified: verified,
-                mismatch: attempts.count { $0.outcome == .mismatch },
+                mismatch: mismatch,
                 failed: attempts.count { $0.outcome == .failed },
                 cancelled: attempts.count { $0.outcome == .cancelled },
+                verificationDenominator: verified + mismatch,
                 verificationRate: PilotRate(
                     numerator: verified,
-                    denominator: attempts.count
+                    denominator: verified + mismatch
                 )
             )
         }
@@ -319,10 +348,14 @@ enum PilotReportBuilder {
             append(&rows, "lookup", dimension, "attempts", item.attempts)
             append(&rows, "lookup", dimension, "found", item.found)
             append(&rows, "lookup", dimension, "not_found", item.notFound)
+            append(&rows, "lookup", dimension, "miss", item.miss)
+            append(&rows, "lookup", dimension, "stale", item.stale)
+            append(&rows, "lookup", dimension, "stale_fallback", item.staleFallback)
             append(&rows, "lookup", dimension, "failed", item.failed)
             append(&rows, "lookup", dimension, "cancelled", item.cancelled)
             append(&rows, "lookup", dimension, "resolved_denominator", item.resolvedDenominator)
             append(&rows, "lookup", dimension, "found_rate", item.foundRate)
+            append(&rows, "lookup", dimension, "usable_cache_rate", item.usableCacheRate)
         }
 
         append(&rows, "location", "all", "measurements", report.location.measurements)
@@ -359,10 +392,12 @@ enum PilotReportBuilder {
         for item in report.transfers {
             let dimension = item.direction.rawValue
             append(&rows, "transfer", dimension, "attempts", item.attempts)
+            append(&rows, "transfer", dimension, "completed", item.completed)
             append(&rows, "transfer", dimension, "verified", item.verified)
             append(&rows, "transfer", dimension, "mismatch", item.mismatch)
             append(&rows, "transfer", dimension, "failed", item.failed)
             append(&rows, "transfer", dimension, "cancelled", item.cancelled)
+            append(&rows, "transfer", dimension, "verification_denominator", item.verificationDenominator)
             append(&rows, "transfer", dimension, "verification_rate", item.verificationRate)
         }
 

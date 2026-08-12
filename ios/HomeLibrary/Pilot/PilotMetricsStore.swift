@@ -12,6 +12,14 @@ struct PilotMetricsStatus: Equatable, Sendable {
     let hasQuarantinedFile: Bool
 }
 
+
+struct PilotMetricsDashboardData: Sendable {
+    let status: PilotMetricsStatus
+    let report: PilotReport
+    let jsonData: Data
+    let csvData: Data
+}
+
 /// Local, opt-in storage for privacy-safe pilot measurements.
 ///
 /// It is independent from SwiftData and from the collection export format.
@@ -173,6 +181,18 @@ actor PilotMetricsStore {
 
     func report() -> PilotReport {
         PilotReportBuilder.build(from: records)
+    }
+
+    /// Builds every dashboard representation from one actor-isolated snapshot,
+    /// so UI counters and the two share files always use identical denominators.
+    func dashboardData() throws -> PilotMetricsDashboardData {
+        let currentReport = PilotReportBuilder.build(from: records)
+        return PilotMetricsDashboardData(
+            status: status(),
+            report: currentReport,
+            jsonData: try PilotReportBuilder.jsonData(for: currentReport),
+            csvData: PilotReportBuilder.csvData(for: currentReport)
+        )
     }
 
     /// Exports aggregates only. There is intentionally no raw-record export API.

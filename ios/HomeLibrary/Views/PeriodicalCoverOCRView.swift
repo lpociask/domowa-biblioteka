@@ -15,6 +15,53 @@ struct PeriodicalCoverOCRSelection: Equatable, Sendable {
     }
 }
 
+/// Resolves one privacy-safe terminal outcome for the lifetime of an OCR view.
+/// Observations can change during retries, but the first terminal transition
+/// wins, preventing apply/dismiss and cancel/onDisappear races from duplicating
+/// a metric.
+struct PeriodicalCoverOCRPilotTerminalArbiter: Equatable, Sendable {
+    enum Observation: Equatable, Sendable {
+        case source
+        case processing
+        case suggestions
+        case noSuggestion
+        case failed
+    }
+
+    private(set) var observation: Observation = .source
+    private(set) var terminalOutcome: PilotOCROutcome?
+
+    mutating func observe(_ newObservation: Observation) {
+        guard terminalOutcome == nil else { return }
+        observation = newObservation
+    }
+
+    mutating func finishApplied() -> PilotOCROutcome? {
+        finish(.suggestionApplied)
+    }
+
+    mutating func finishDismissed() -> PilotOCROutcome? {
+        let outcome: PilotOCROutcome
+        switch observation {
+        case .suggestions:
+            outcome = .suggestionRejected
+        case .noSuggestion:
+            outcome = .noSuggestion
+        case .failed:
+            outcome = .failed
+        case .source, .processing:
+            outcome = .cancelled
+        }
+        return finish(outcome)
+    }
+
+    private mutating func finish(_ outcome: PilotOCROutcome) -> PilotOCROutcome? {
+        guard terminalOutcome == nil else { return nil }
+        terminalOutcome = outcome
+        return outcome
+    }
+}
+
 /// Review-first cover OCR. The image exists only while the local Vision task
 /// runs; the view returns selected text values and never persists a photo.
 struct PeriodicalCoverOCRView: View {
@@ -33,6 +80,7 @@ struct PeriodicalCoverOCRView: View {
     let onApply: (PeriodicalCoverOCRSelection) -> Void
 
     private let service: PeriodicalCoverOCRService
+    private let pilotMetricsStore: PilotMetricsStore?
 
     @State private var phase: Phase = .source
     @State private var showsCamera = false
@@ -41,18 +89,21 @@ struct PeriodicalCoverOCRView: View {
     @State private var useIssueNumber = false
     @State private var useIssueVolume = false
     @State private var useIssueDate = false
+    @State private var pilotTerminalArbiter = PeriodicalCoverOCRPilotTerminalArbiter()
 
     init(
         existingIssueNumber: String,
         existingIssueVolume: String,
         existingIssueDate: String,
         service: PeriodicalCoverOCRService = PeriodicalCoverOCRService(),
+        pilotMetricsStore: PilotMetricsStore? = nil,
         onApply: @escaping (PeriodicalCoverOCRSelection) -> Void
     ) {
         self.existingIssueNumber = existingIssueNumber
         self.existingIssueVolume = existingIssueVolume
         self.existingIssueDate = existingIssueDate
         self.service = service
+        self.pilotMetricsStore = pilotMetricsStore
         self.onApply = onApply
     }
 
@@ -85,7 +136,10 @@ struct PeriodicalCoverOCRView: View {
             .toolbarColorScheme(.light, for: .navigationBar)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Anuluj") { dismiss() }
+                    Button("Anuluj") {
+                        finishPilotSessionOnDismiss()
+                        dismiss()
+                    }
                         .foregroundStyle(LibraryPalette.ink)
                         .frame(minWidth: 44, minHeight: 44)
                 }
@@ -112,11 +166,13 @@ struct PeriodicalCoverOCRView: View {
                     return
                 } catch {
                     phase = .failed(error.localizedDescription)
+                    pilotTerminalArbiter.observe(.failed)
                 }
             }
         }
         .onDisappear {
             recognitionTask?.cancel()
+            finishPilotSessionOnDismiss()
         }
     }
 
@@ -193,6 +249,7 @@ struct PeriodicalCoverOCRView: View {
             EditorialSecondaryButton(title: "Przerwij", icon: "xmark") {
                 recognitionTask?.cancel()
                 phase = .source
+                pilotTerminalArbiter.observe(.source)
             }
         }
     }
@@ -320,6 +377,7 @@ struct PeriodicalCoverOCRView: View {
         recognitionTask?.cancel()
         recognitionTask = Task {
             phase = .processing
+            pilotTerminalArbiter.observe(.processing)
             do {
                 let preparedData = try await Task.detached(priority: .userInitiated) {
                     try PeriodicalCoverImagePreprocessor.prepare(image)
@@ -329,12 +387,14 @@ struct PeriodicalCoverOCRView: View {
                 return
             } catch {
                 phase = .failed(error.localizedDescription)
+                pilotTerminalArbiter.observe(.failed)
             }
         }
     }
 
     private func processImageData(_ rawData: Data) async {
         phase = .processing
+        pilotTerminalArbiter.observe(.processing)
         do {
             let preparedData = try await Task.detached(priority: .userInitiated) {
                 try PeriodicalCoverImagePreprocessor.prepare(rawData)
@@ -344,6 +404,7 @@ struct PeriodicalCoverOCRView: View {
             return
         } catch {
             phase = .failed(error.localizedDescription)
+            pilotTerminalArbiter.observe(.failed)
         }
     }
 
@@ -355,6 +416,9 @@ struct PeriodicalCoverOCRView: View {
         useIssueVolume = suggestions.issueVolume != nil && existingIssueVolume.trimmedForOCR.isEmpty
         useIssueDate = suggestions.issueDate != nil && existingIssueDate.trimmedForOCR.isEmpty
         phase = .result(suggestions)
+        pilotTerminalArbiter.observe(
+            hasAnySuggestion(suggestions) ? .suggestions : .noSuggestion
+        )
         UIAccessibility.post(
             notification: .announcement,
             argument: hasAnySuggestion(suggestions)
@@ -386,6 +450,7 @@ struct PeriodicalCoverOCRView: View {
                 : nil
         )
         guard !selection.isEmpty else { return }
+        finishPilotSessionApplied()
         onApply(selection)
         dismiss()
     }
@@ -397,6 +462,25 @@ struct PeriodicalCoverOCRView: View {
         useIssueVolume = false
         useIssueDate = false
         phase = .source
+        pilotTerminalArbiter.observe(.source)
+    }
+
+    private func finishPilotSessionApplied() {
+        guard let outcome = pilotTerminalArbiter.finishApplied() else { return }
+        recordPilotOutcome(outcome)
+    }
+
+    private func finishPilotSessionOnDismiss() {
+        guard let outcome = pilotTerminalArbiter.finishDismissed() else { return }
+        recordPilotOutcome(outcome)
+    }
+
+    private func recordPilotOutcome(_ outcome: PilotOCROutcome) {
+        guard let pilotMetricsStore else { return }
+        let event = PilotMetricEvent.ocr(PilotOCRMetric(outcome: outcome))
+        Task {
+            _ = try? await pilotMetricsStore.record(event)
+        }
     }
 }
 

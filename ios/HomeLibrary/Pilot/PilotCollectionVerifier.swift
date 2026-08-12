@@ -126,7 +126,49 @@ enum PilotCollectionVerifier {
         // This is a read-only operation. It validates exactly the same
         // canonical v1 contract as a real import but never calls `apply`.
         _ = try CollectionImporter.prepare(data: data)
-        return try JSONDecoder().decode(CanonicalCollection.self, from: data)
+
+        let fractionalFormatter = ISO8601DateFormatter()
+        fractionalFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let wholeSecondFormatter = ISO8601DateFormatter()
+        wholeSecondFormatter.formatOptions = [.withInternetDateTime]
+
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .custom { decoder in
+            let container = try decoder.singleValueContainer()
+            let value = try container.decode(String.self)
+            let normalized = webCompatibleTimestamp(value)
+            guard let date = fractionalFormatter.date(from: normalized)
+                ?? wholeSecondFormatter.date(from: normalized) else {
+                throw DecodingError.dataCorruptedError(
+                    in: container,
+                    debugDescription: "Validated ISO 8601 timestamp could not be normalized."
+                )
+            }
+            return date
+        }
+        return try decoder.decode(CanonicalCollection.self, from: data)
+    }
+
+    /// Web `Date` and `toISOString()` retain millisecond precision. The importer
+    /// has already strictly validated the full timestamp, so comparison only
+    /// needs to make equivalent fractional spellings resolve to the same instant.
+    private static func webCompatibleTimestamp(_ value: String) -> String {
+        let bytes = Array(value.utf8)
+        guard bytes.count > 20, bytes[19] == 46 else { return value } // .
+
+        var zoneIndex = 20
+        while zoneIndex < bytes.count, (48...57).contains(bytes[zoneIndex]) {
+            zoneIndex += 1
+        }
+        guard zoneIndex > 20, zoneIndex < bytes.count else { return value }
+
+        let retainedEnd = min(zoneIndex, 23)
+        var normalized = String(decoding: bytes[..<retainedEnd], as: UTF8.self)
+        if retainedEnd - 20 < 3 {
+            normalized += String(repeating: "0", count: 3 - (retainedEnd - 20))
+        }
+        normalized += String(decoding: bytes[zoneIndex...], as: UTF8.self)
+        return normalized
     }
 
     private static func compare(
@@ -275,8 +317,8 @@ private struct CanonicalPublication: Decodable {
     let identifiers: CanonicalIdentifiers
     let issue: CanonicalIssue?
     let metadata: CanonicalBibliographicMetadata?
-    let createdAt: String
-    let updatedAt: String
+    let createdAt: Date
+    let updatedAt: Date
 }
 
 private struct CanonicalIdentifiers: Decodable, Equatable {
@@ -318,8 +360,8 @@ private struct CanonicalOwnedItem: Decodable {
     let locationPath: [String]
     let status: String
     let notes: String?
-    let addedAt: String
-    let updatedAt: String
+    let addedAt: Date
+    let updatedAt: Date
 }
 
 private struct ComparableCollectionMetadata: Equatable {
@@ -346,8 +388,8 @@ private struct ComparablePublicationMetadata: Equatable {
     let identifiers: ComparableIdentifiers
     let issue: ComparableIssue?
     let metadata: ComparableBibliographicMetadata
-    let createdAt: String
-    let updatedAt: String
+    let createdAt: Date
+    let updatedAt: Date
 
     init(source: CanonicalPublication) {
         type = source.type
@@ -431,8 +473,8 @@ private struct ComparableCopy: Equatable {
 private struct ComparableCopyMetadata: Equatable {
     let status: String
     let notes: String?
-    let addedAt: String
-    let updatedAt: String
+    let addedAt: Date
+    let updatedAt: Date
 
     init(source: CanonicalOwnedItem) {
         status = source.status

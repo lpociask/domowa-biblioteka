@@ -3,6 +3,7 @@ import SwiftUI
 
 @main
 struct HomeLibraryApp: App {
+    private let pilotMetricsStore = PilotMetricsStore()
     private let modelContainer: ModelContainer = {
         let schema = Schema([
             Publication.self,
@@ -24,7 +25,7 @@ struct HomeLibraryApp: App {
 
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            ContentView(pilotMetricsStore: pilotMetricsStore)
         }
         .modelContainer(modelContainer)
     }
@@ -38,7 +39,7 @@ private enum HomeLibraryUITestFixture {
         guard arguments.contains("-ui-testing"),
               let routeIndex = arguments.firstIndex(of: "-ui-route"),
               arguments.indices.contains(routeIndex + 1),
-              arguments[routeIndex + 1] == "library-populated" else {
+              ["library-populated", "pilot-dashboard"].contains(arguments[routeIndex + 1]) else {
             return
         }
 

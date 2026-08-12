@@ -35,6 +35,60 @@ final class PilotCollectionVerifierTests: XCTestCase {
         XCTAssertEqual(report.mismatches, [])
     }
 
+    func testZuluAndExplicitMillisecondTimestampsAreSemanticallyEqual() throws {
+        let original = payloadBySettingRecordTimestamps(
+            in: basePayload(),
+            to: "2026-08-11T10:00:00Z"
+        )
+        let restored = payloadBySettingRecordTimestamps(
+            in: original,
+            to: "2026-08-11T10:00:00.000Z"
+        )
+
+        let report = PilotCollectionVerifier.verify(
+            original: try encoded(original),
+            restored: try encoded(restored)
+        )
+
+        XCTAssertTrue(report.isVerified)
+        XCTAssertEqual(report.mismatches, [])
+    }
+
+    func testEquivalentOffsetTimestampsAreSemanticallyEqual() throws {
+        let original = payloadBySettingRecordTimestamps(
+            in: basePayload(),
+            to: "2026-08-11T10:00:00.123Z"
+        )
+        let restored = payloadBySettingRecordTimestamps(
+            in: original,
+            to: "2026-08-11T12:00:00.123+02:00"
+        )
+
+        let report = PilotCollectionVerifier.verify(
+            original: try encoded(original),
+            restored: try encoded(restored)
+        )
+
+        XCTAssertTrue(report.isVerified)
+        XCTAssertEqual(report.mismatches, [])
+    }
+
+    func testInvalidRestoredTimestampStillFailsStrictCanonicalValidation() throws {
+        let original = basePayload()
+        let restored = payloadBySettingRecordTimestamps(
+            in: original,
+            to: "2026-02-29T10:00:00Z"
+        )
+
+        let report = PilotCollectionVerifier.verify(
+            original: try encoded(original),
+            restored: try encoded(restored)
+        )
+
+        XCTAssertEqual(report.outcome, .invalidRestored)
+        XCTAssertEqual(report.mismatches, .schema)
+    }
+
     func testCountMismatchIsReportedWithoutLeakingTheNewCopy() throws {
         let original = basePayload()
         var restored = original
@@ -330,6 +384,27 @@ final class PilotCollectionVerifierTests: XCTestCase {
 
     private func ownedItems(in payload: [String: Any]) -> [[String: Any]] {
         payload["ownedItems"] as! [[String: Any]]
+    }
+
+    private func payloadBySettingRecordTimestamps(
+        in payload: [String: Any],
+        to timestamp: String
+    ) -> [String: Any] {
+        var result = payload
+        var updatedPublications = publications(in: result)
+        for index in updatedPublications.indices {
+            updatedPublications[index]["createdAt"] = timestamp
+            updatedPublications[index]["updatedAt"] = timestamp
+        }
+        result["publications"] = updatedPublications
+
+        var updatedItems = ownedItems(in: result)
+        for index in updatedItems.indices {
+            updatedItems[index]["addedAt"] = timestamp
+            updatedItems[index]["updatedAt"] = timestamp
+        }
+        result["ownedItems"] = updatedItems
+        return result
     }
 
     private func encoded(_ payload: [String: Any]) throws -> Data {

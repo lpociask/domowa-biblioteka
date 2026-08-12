@@ -34,19 +34,24 @@ struct PilotCatalogMetric: Codable, Equatable, Sendable {
     let recognitionToSaveMilliseconds: UInt32?
     /// Number of fields manually corrected during this cataloging attempt.
     let manualCorrectionCount: UInt16
+    /// True only when automation actually filled at least one tracked field.
+    /// This keeps manual-only entries out of the correction-rate denominator.
+    let hadAutomaticFieldFill: Bool
 
     init(
         publicationKind: PilotPublicationKind,
         outcome: PilotCatalogOutcome,
         activeMilliseconds: UInt32,
         recognitionToSaveMilliseconds: UInt32? = nil,
-        manualCorrectionCount: UInt16 = 0
+        manualCorrectionCount: UInt16 = 0,
+        hadAutomaticFieldFill: Bool = false
     ) {
         self.publicationKind = publicationKind
         self.outcome = outcome
         self.activeMilliseconds = activeMilliseconds
         self.recognitionToSaveMilliseconds = recognitionToSaveMilliseconds
         self.manualCorrectionCount = manualCorrectionCount
+        self.hadAutomaticFieldFill = hadAutomaticFieldFill
     }
 }
 
@@ -59,6 +64,12 @@ enum PilotLookupSource: String, Codable, CaseIterable, Sendable {
 enum PilotLookupOutcome: String, Codable, CaseIterable, Sendable {
     case found
     case notFound
+    /// No usable cache entry existed. Only the metadata cache emits this outcome.
+    case miss
+    /// A stale positive cache entry existed but was not needed as a fallback.
+    case stale
+    /// Upstream failed and a still-valid stale positive entry was returned.
+    case staleFallback
     case failed
     case cancelled
 }
@@ -122,6 +133,7 @@ struct PilotSearchMetric: Codable, Equatable, Sendable {
 enum PilotMutationAction: String, Codable, CaseIterable, Sendable {
     case edit
     case move
+    case delete
     case undo
     case duplicatePrevented
     case duplicateOverride
@@ -150,6 +162,8 @@ enum PilotTransferDirection: String, Codable, CaseIterable, Sendable {
 }
 
 enum PilotTransferOutcome: String, Codable, CaseIterable, Sendable {
+    /// A regular import/export completed; it was not a round-trip verification.
+    case completed
     case verified
     case mismatch
     case failed
@@ -177,4 +191,29 @@ struct PilotMetricRecord: Codable, Equatable, Sendable {
 enum PilotAggregateExportFormat: Sendable {
     case json
     case csv
+}
+
+/// Non-throwing, privacy-safe bridge between catalog lookup providers and the
+/// opt-in pilot store. The closure receives only a closed metric — never the
+/// ISBN, response, error text or any bibliographic data.
+struct BookMetadataLookupObserver: Sendable {
+    private let handler: @Sendable (PilotLookupMetric) async -> Void
+
+    init(handler: @escaping @Sendable (PilotLookupMetric) async -> Void) {
+        self.handler = handler
+    }
+
+    func record(source: PilotLookupSource, outcome: PilotLookupOutcome) async {
+        await handler(PilotLookupMetric(source: source, outcome: outcome))
+    }
+
+    static let disabled = Self { _ in }
+
+    /// Makes lookup instrumentation write into the same serialized actor as all
+    /// other pilot events. Store failures deliberately never alter lookup results.
+    static func recording(in store: PilotMetricsStore) -> Self {
+        Self { metric in
+            _ = try? await store.record(.lookup(metric))
+        }
+    }
 }

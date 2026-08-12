@@ -34,7 +34,8 @@ Open Library pozostaje eksperymentalnym źródłem low-volume. Odpowiedzi katalo
 - [x] wykrywanie kolejnej kopii i możliwego ponownego skanu na tej samej półce;
 - [x] edycja opisu, przenoszenie egzemplarza i bezpieczne usuwanie;
 - [x] szybkie cofnięcie zapisu, edycji, przeniesienia i usunięcia;
-- [ ] pomiar ergonomii na pilocie 100–200 realnych obiektów.
+- [x] dobrowolny, lokalny instrument pomiarowy i dashboard pilota 100–200;
+- [ ] wykonanie pilota na 100–200 realnych obiektów i decyzja na podstawie wyników.
 
 ## Etap 2 — prasa
 
@@ -80,3 +81,15 @@ Pilot powinien objąć 100–200 realnych obiektów. Orientacyjne cele:
 - pełne odtworzenie kolekcji z eksportu, zweryfikowane na realnych danych i w obu klientach.
 
 To są progi decyzyjne, nie wyniki osiągnięte przez obecną wersję.
+
+### Jak prowadzimy pilot
+
+Pomiar jest domyślnie wyłączony. Użytkownik włącza go w iOS przez `Więcej → Pilot 100–200`. Aplikacja zapisuje lokalnie wyłącznie zamknięte wyniki operacji i ograniczone liczniki/czasy — bez tytułów, ISBN, nazw lokalizacji, notatek, obrazów i identyfikatorów egzemplarzy. Udostępniany raport JSON/CSV zawiera tylko agregaty.
+
+Trzy KPI decyzyjne to:
+
+1. mediana i P90 aktywnego czasu dodania książki oraz prasy;
+2. odsetek trafień BN/Open Library i odsetek zapisów wymagających ręcznej korekty;
+3. odsetek semantycznie poprawnych odtworzeń iOS → WWW → iOS.
+
+Wyniki interpretujemy razem z guardrailami: awarie i anulowania, brak lokalizacji, duplikaty/override, skuteczność OCR oraz sukces wyszukiwania. Zwykły eksport lub import nie jest liczony jako poprawne odtworzenie — trzeba uruchomić osobną akcję weryfikacji i wskazać plik, który przeszedł przez WWW.

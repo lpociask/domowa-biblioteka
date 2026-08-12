@@ -9,6 +9,7 @@ Pierwszy vertical slice prywatnego katalogu książek i prasy:
 - lokalny OCR okładki prasy z jawnym potwierdzeniem numeru, tomu i daty oraz analiza serii, luk i duplikatów;
 - statyczny katalog WWW działający na GitHub Pages i przechowujący dane lokalnie w przeglądarce;
 - wspólny, wersjonowany format importu i eksportu JSON;
+- prywatny, dobrowolny panel pilota 100–200 z czasami katalogowania, jakością metadanych i weryfikacją odtworzenia bazy;
 - świadome rozdzielenie publikacji od posiadanego egzemplarza.
 
 **Działające demo:** [lpociask.github.io/domowa-biblioteka](https://lpociask.github.io/domowa-biblioteka/)
@@ -74,7 +75,7 @@ Publiczny kontrakt maszynowy: [collection.schema.json](https://lpociask.github.i
 
 ## Następne etapy
 
-1. Pilot na 100–200 realnych książkach i numerach prasy wraz z lokalnym raportem czasu, skuteczności źródeł i ręcznych korekt.
+1. Wykonanie pilota na 100–200 realnych książkach i numerach prasy przy pomocy wbudowanego, lokalnego panelu pomiarowego.
 2. Dalsze utwardzenie metadanych: e‑ISBN, pochodzenie pojedynczych pól i obsługa niejednoznacznych wyników.
 3. Walidacja na fizycznych próbkach dodatków EAN‑2/EAN‑5, OCR oraz analizy brakujących i zdublowanych numerów.
 4. Dopiero po pilocie: decyzja o prywatnym backendzie synchronizacji i koncie użytkownika.

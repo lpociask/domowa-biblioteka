@@ -342,6 +342,145 @@ final class BookMetadataCacheTests: XCTestCase {
         XCTAssertEqual(callCount, 1)
     }
 
+    func testCacheTraceDistinguishesMissPositiveHitAndNegativeHit() async throws {
+        let directory = try makeTemporaryDirectory()
+        let cache = makeCache(directory: directory, clock: TestClock(Self.referenceDate))
+        let trace = CacheLookupTraceCollector()
+
+        let positiveUpstream = QueueBookMetadataProvider([.success(Self.firstMetadata)])
+        let positive = CachedBookMetadataProvider(
+            upstream: positiveUpstream,
+            cache: cache,
+            observer: trace.observer
+        )
+        _ = try await positive.lookup(isbn: Self.isbnA)
+        _ = try await positive.lookup(isbn: Self.isbnA)
+
+        let negativeUpstream = QueueBookMetadataProvider([.success(nil)])
+        let negative = CachedBookMetadataProvider(
+            upstream: negativeUpstream,
+            cache: cache,
+            observer: trace.observer
+        )
+        _ = try await negative.lookup(isbn: Self.isbnB)
+        _ = try await negative.lookup(isbn: Self.isbnB)
+
+        let values = await trace.values
+        XCTAssertEqual(values, [
+            PilotLookupMetric(source: .metadataCache, outcome: .miss),
+            PilotLookupMetric(source: .metadataCache, outcome: .found),
+            PilotLookupMetric(source: .metadataCache, outcome: .miss),
+            PilotLookupMetric(source: .metadataCache, outcome: .notFound)
+        ])
+        let positiveCalls = await positiveUpstream.callCount
+        let negativeCalls = await negativeUpstream.callCount
+        XCTAssertEqual(positiveCalls, 1)
+        XCTAssertEqual(negativeCalls, 1)
+    }
+
+    func testCacheTraceDistinguishesStaleRefreshFromStaleFallback() async throws {
+        let refreshDirectory = try makeTemporaryDirectory()
+        let refreshClock = TestClock(Self.referenceDate)
+        let refreshCache = makeCache(directory: refreshDirectory, clock: refreshClock)
+        try await refreshCache.store(Self.firstMetadata, forISBN: Self.isbnA)
+        refreshClock.advance(days: 31)
+        let refreshTrace = CacheLookupTraceCollector()
+        let refreshProvider = CachedBookMetadataProvider(
+            upstream: QueueBookMetadataProvider([.success(Self.refreshedMetadata)]),
+            cache: refreshCache,
+            observer: refreshTrace.observer
+        )
+
+        let refreshed = try await refreshProvider.lookup(isbn: Self.isbnA)
+        let refreshValues = await refreshTrace.values
+        XCTAssertEqual(refreshed, Self.refreshedMetadata)
+        XCTAssertEqual(refreshValues, [
+            PilotLookupMetric(source: .metadataCache, outcome: .stale)
+        ])
+
+        let fallbackDirectory = try makeTemporaryDirectory()
+        let fallbackClock = TestClock(Self.referenceDate)
+        let fallbackCache = makeCache(directory: fallbackDirectory, clock: fallbackClock)
+        try await fallbackCache.store(Self.firstMetadata, forISBN: Self.isbnA)
+        fallbackClock.advance(days: 31)
+        let fallbackTrace = CacheLookupTraceCollector()
+        let fallbackProvider = CachedBookMetadataProvider(
+            upstream: QueueBookMetadataProvider([.failure(.unavailable)]),
+            cache: fallbackCache,
+            observer: fallbackTrace.observer
+        )
+
+        let fallback = try await fallbackProvider.lookup(isbn: Self.isbnA)
+        let fallbackValues = await fallbackTrace.values
+        XCTAssertEqual(fallback, Self.firstMetadata)
+        XCTAssertEqual(fallbackValues, [
+            PilotLookupMetric(source: .metadataCache, outcome: .staleFallback)
+        ])
+    }
+
+    func testUnavailableCacheRecordsFailureWithoutInventingMiss() async throws {
+        let root = try makeTemporaryDirectory()
+        let invalidDirectory = root.appendingPathComponent("not-a-directory")
+        try Data("file".utf8).write(to: invalidDirectory)
+        let cache = makeCache(directory: invalidDirectory, clock: TestClock(Self.referenceDate))
+        let trace = CacheLookupTraceCollector()
+        let provider = CachedBookMetadataProvider(
+            upstream: QueueBookMetadataProvider([.success(Self.firstMetadata)]),
+            cache: cache,
+            observer: trace.observer
+        )
+
+        let result = try await provider.lookup(isbn: Self.isbnA)
+        let values = await trace.values
+
+        XCTAssertEqual(result, Self.firstMetadata)
+        XCTAssertEqual(values, [
+            PilotLookupMetric(source: .metadataCache, outcome: .failed)
+        ])
+    }
+
+    func testInstrumentedLookupWritesClosedEventsToOnePilotStore() async throws {
+        let cacheDirectory = try makeTemporaryDirectory()
+        let pilotDirectory = try makeTemporaryDirectory().appendingPathComponent(
+            "Pilot",
+            isDirectory: true
+        )
+        let store = PilotMetricsStore(directoryURL: pilotDirectory)
+        try await store.setEnabled(true)
+        let observer = BookMetadataLookupObserver.recording(in: store)
+        let upstream = CascadingBookMetadataProvider(
+            nationalLibrary: QueueBookMetadataProvider([.success(Self.firstMetadata)]),
+            openLibrary: QueueBookMetadataProvider([.success(Self.refreshedMetadata)]),
+            observer: observer
+        )
+        let provider = DefaultBookMetadataProvider(
+            upstream: upstream,
+            cache: makeCache(
+                directory: cacheDirectory,
+                clock: TestClock(Self.referenceDate)
+            ),
+            observer: observer
+        )
+
+        _ = try await provider.lookup(isbn: Self.isbnA)
+        let report = await store.report()
+        let cacheReport = try XCTUnwrap(
+            report.lookups.first { $0.source == .metadataCache }
+        )
+        let nationalLibraryReport = try XCTUnwrap(
+            report.lookups.first { $0.source == .nationalLibrary }
+        )
+        let openLibraryReport = try XCTUnwrap(
+            report.lookups.first { $0.source == .openLibrary }
+        )
+
+        XCTAssertEqual(cacheReport.attempts, 1)
+        XCTAssertEqual(cacheReport.miss, 1)
+        XCTAssertEqual(nationalLibraryReport.attempts, 1)
+        XCTAssertEqual(nationalLibraryReport.found, 1)
+        XCTAssertEqual(openLibraryReport.attempts, 0)
+    }
+
     func testTwentyConcurrentLookupsShareOneUpstreamAndOneStoredResult() async throws {
         let directory = try makeTemporaryDirectory()
         let cache = makeCache(
@@ -607,6 +746,20 @@ private actor CancelledBookMetadataProvider: BookMetadataProviding {
     func lookup(isbn: String) async throws -> BookMetadata? {
         callCount += 1
         throw URLError(.cancelled)
+    }
+}
+
+private actor CacheLookupTraceCollector {
+    private(set) var values: [PilotLookupMetric] = []
+
+    nonisolated var observer: BookMetadataLookupObserver {
+        BookMetadataLookupObserver { metric in
+            await self.append(metric)
+        }
+    }
+
+    private func append(_ metric: PilotLookupMetric) {
+        values.append(metric)
     }
 }
 
