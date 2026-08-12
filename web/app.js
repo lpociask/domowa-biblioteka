@@ -1,5 +1,6 @@
 import {
   ITEM_TYPES,
+  PilotReportImportError,
   analyzePeriodicals,
   automaticCoverUrl,
   catalogEntries,
@@ -686,7 +687,11 @@ async function prepareImport(file) {
     elements.importSummary.textContent = `${file.name}: ${stats.total} ${pluralize(stats.total, ["egzemplarz", "egzemplarze", "egzemplarzy"])}, ${stats.publications} ${pluralize(stats.publications, ["publikacja", "publikacje", "publikacji"])} i ${collection.locations.length} ${pluralize(collection.locations.length, ["lokalizacja", "lokalizacje", "lokalizacji"])}.`;
     elements.importDialog.showModal();
   } catch (error) {
-    showToast(`Nie udało się zaimportować pliku: ${error.message}`, true);
+    const message =
+      error instanceof PilotReportImportError
+        ? error.message
+        : `Nie udało się zaimportować pliku: ${error.message}`;
+    showToast(message, true);
   } finally {
     elements.fileInput.value = "";
   }

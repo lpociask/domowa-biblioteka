@@ -106,8 +106,9 @@ final class PilotDashboardViewTests: XCTestCase {
     func testExportFileDeclaresOnlyAggregateJSONAndCSVRepresentations() {
         XCTAssertEqual(PilotDashboardExportFormat.json.contentType, .json)
         XCTAssertEqual(PilotDashboardExportFormat.csv.contentType, .commaSeparatedText)
-        XCTAssertEqual(PilotDashboardExportFormat.json.fileName, "pilot-kolekcji.json")
-        XCTAssertEqual(PilotDashboardExportFormat.csv.fileName, "pilot-kolekcji.csv")
+        XCTAssertEqual(PilotDashboardExportFormat.json.fileName, "raport-pilota-kpi.json")
+        XCTAssertEqual(PilotDashboardExportFormat.csv.fileName, "raport-pilota-kpi.csv")
+        XCTAssertEqual(PilotDashboardExportFormat.json.buttonTitle, "Udostępnij raport JSON")
         XCTAssertEqual(PilotDashboardJSONExport(data: Data("{}".utf8)).data, Data("{}".utf8))
         XCTAssertEqual(PilotDashboardCSVExport(data: Data("a,b\n".utf8)).data, Data("a,b\n".utf8))
     }

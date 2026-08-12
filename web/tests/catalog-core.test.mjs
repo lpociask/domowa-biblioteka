@@ -3,12 +3,15 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 import {
+  PILOT_REPORT_IMPORT_MESSAGE,
+  PilotReportImportError,
   analyzePeriodicals,
   automaticCoverUrl,
   catalogEntries,
   collectionStats,
   exportPayload,
   filterEntries,
+  isPilotMetricsReport,
   locationPath,
   mergeCollections,
   normalizeCollection,
@@ -67,6 +70,35 @@ const canonical = {
   ],
 };
 
+const pilotMetricsReport = {
+  schemaVersion: 1,
+  catalog: [
+    {
+      publicationKind: "book",
+      attempts: 25,
+      completed: 22,
+      cancelled: 3,
+    },
+  ],
+  corrections: {
+    completedItems: 22,
+    correctedItems: 4,
+    manualCorrections: 12,
+  },
+  lookups: [
+    {
+      source: "nationalLibrary",
+      attempts: 29,
+      found: 16,
+    },
+  ],
+  location: { measurements: 22, reusedPrevious: 2 },
+  mutations: [],
+  ocr: { attempts: 0 },
+  search: { sessions: 0 },
+  transfers: [],
+};
+
 function makePeriodicalCollection(publications, copies = null) {
   const normalizedPublications = publications.map((publication, index) => ({
     ...canonical.publications[0],
@@ -107,6 +139,46 @@ test("normalizacja zachowuje rozdział publikacji i wielu egzemplarzy", () => {
   assert.equal(collection.ownedItems.length, 2);
   assert.equal(collection.ownedItems[1].publicationId, "pub-1");
   assert.equal(collection.ownedItems[1].status, "loaned");
+});
+
+test("raport pomiarowy pilota jest rozpoznawany i odrzucany z instrukcją importu kolekcji", () => {
+  const input = structuredClone(pilotMetricsReport);
+  const unchanged = structuredClone(input);
+
+  assert.equal(isPilotMetricsReport(input), true);
+  assert.throws(
+    () => normalizeCollection(input),
+    (error) =>
+      error instanceof PilotReportImportError &&
+      error.message === PILOT_REPORT_IMPORT_MESSAGE,
+  );
+  assert.deepEqual(input, unchanged);
+});
+
+test("dodatkowe pola raportowe nie blokują prawidłowego pliku kolekcji", () => {
+  const input = {
+    ...structuredClone(canonical),
+    catalog: pilotMetricsReport.catalog,
+    corrections: pilotMetricsReport.corrections,
+    lookups: pilotMetricsReport.lookups,
+  };
+
+  assert.equal(isPilotMetricsReport(input), false);
+  assert.equal(normalizeCollection(input).ownedItems.length, 2);
+});
+
+test("przypadkowy niepełny JSON zachowuje ogólny błąd formatu kolekcji", () => {
+  const input = {
+    schemaVersion: 1,
+    catalog: [],
+    corrections: {},
+  };
+
+  assert.equal(isPilotMetricsReport(input), false);
+  assert.throws(
+    () => normalizeCollection(input),
+    /Plik nie zawiera tablic „publications” i „ownedItems”/,
+  );
 });
 
 test("kanoniczna normalizacja emituje całkowity rok i daty ISO 8601", () => {

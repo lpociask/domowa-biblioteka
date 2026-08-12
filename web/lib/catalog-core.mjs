@@ -1,5 +1,15 @@
 export const SCHEMA_VERSION = 1;
 
+export const PILOT_REPORT_IMPORT_MESSAGE =
+  "To jest raport pomiarowy pilota, a nie plik kolekcji. Aby zaimportować kolekcję, wybierz eksport JSON z głównego menu aplikacji iOS.";
+
+export class PilotReportImportError extends TypeError {
+  constructor() {
+    super(PILOT_REPORT_IMPORT_MESSAGE);
+    this.name = "PilotReportImportError";
+  }
+}
+
 export const ITEM_TYPES = Object.freeze({
   book: "Książka",
   periodical: "Prasa",
@@ -10,6 +20,25 @@ const ALLOWED_STATUSES = new Set(["owned", "loaned", "missing", "archived"]);
 const ALLOWED_LOCATION_TYPES = new Set(["home", "room", "bookcase", "shelf", "box", "other"]);
 const ISO_8601_DATE_TIME =
   /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d+))?(Z|([+-])(\d{2}):(\d{2}))$/;
+
+export function isPilotMetricsReport(input) {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return false;
+
+  const containsCollectionData =
+    Array.isArray(input.publications) ||
+    Array.isArray(input.ownedItems) ||
+    Array.isArray(input.items);
+  if (containsCollectionData) return false;
+
+  return (
+    Number.isInteger(input.schemaVersion) &&
+    Array.isArray(input.catalog) &&
+    input.corrections !== null &&
+    typeof input.corrections === "object" &&
+    !Array.isArray(input.corrections) &&
+    Array.isArray(input.lookups)
+  );
+}
 
 function asString(value, fallback = "") {
   if (value === null || value === undefined) return fallback;
@@ -347,6 +376,10 @@ function normalizeLegacyItems(rawItems, fallbackAt) {
 export function normalizeCollection(input) {
   if (!input || typeof input !== "object") {
     throw new TypeError("Plik kolekcji musi zawierać obiekt JSON.");
+  }
+
+  if (isPilotMetricsReport(input)) {
+    throw new PilotReportImportError();
   }
 
   if (!Array.isArray(input) && input.schemaVersion !== undefined && input.schemaVersion !== SCHEMA_VERSION) {

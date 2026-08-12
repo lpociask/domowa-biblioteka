@@ -391,7 +391,7 @@ struct PilotDashboardView: View {
     private var exportSection: some View {
         VStack(alignment: .leading, spacing: LibrarySpacing.medium) {
             EditorialSectionHeader(title: "Eksport raportu", value: "BEZ RAW EVENTS")
-            Text("Pliki zawierają wyłącznie to podsumowanie: liczniki, rozkłady czasów i wskaźniki. Nie zawierają pojedynczych zdarzeń ani danych kolekcji.")
+            Text("Pliki zawierają wyłącznie podsumowanie pomiarów: liczniki, rozkłady czasów i wskaźniki. To nie jest eksport kolekcji i tych plików nie importuje się na stronie WWW.")
                 .font(.system(.footnote, design: .serif))
                 .lineSpacing(3)
                 .foregroundStyle(LibraryPalette.mutedInk)
@@ -641,9 +641,9 @@ enum PilotDashboardExportFormat: String, Sendable {
     }
 
     var fileExtension: String { rawValue }
-    var fileName: String { "pilot-kolekcji.\(fileExtension)" }
+    var fileName: String { "raport-pilota-kpi.\(fileExtension)" }
     var shareTitle: String { "Raport pilota \(rawValue.uppercased())" }
-    var buttonTitle: String { "Udostępnij \(rawValue.uppercased())" }
+    var buttonTitle: String { "Udostępnij raport \(rawValue.uppercased())" }
     var icon: String { self == .json ? "curlybraces" : "tablecells" }
 }
 

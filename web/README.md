@@ -24,6 +24,7 @@ Testy korzystają wyłącznie z modułów wbudowanych w Node.js.
 
 - Format wejścia i wyjścia to kanoniczny `collection.json` v1: osobne `publications[]` i `ownedItems[]` pozwalają opisać wiele fizycznych kopii jednego wydania.
 - Importer toleruje starszy format `items[]` i normalizuje go do v1.
+- Raport pomiarowy pilota z iOS jest rozpoznawany przed importem i nie zmienia kolekcji ani `localStorage`. Do WWW należy wybrać eksport JSON kolekcji z głównego menu aplikacji iOS.
 - Kanoniczny v1 wymaga poprawnych dat ISO 8601 i całkowitego roku 1–9999. Podczas scalania te same hierarchiczne lokalizacje są deduplikowane także wtedy, gdy pochodzą z różnych klientów i mają inne ID.
 - Import pliku jest ograniczony do 25 MB, tak samo jak w aplikacji iOS.
 - Bieżąca kolekcja jest przechowywana w `localStorage` pod kluczem `polka.collection.v1`.
