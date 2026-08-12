@@ -2,6 +2,8 @@
 
 Statyczny, responsywny podgląd kolekcji przeznaczony do publikacji na GitHub Pages. Nie wymaga bundlera, npm ani zewnętrznych bibliotek.
 
+WWW korzysta z tego samego znaku aplikacji co iOS. Warianty favicony, ikony ekranu początkowego i manifest aplikacji webowej znajdują się lokalnie w `assets/`; nie wymagają pobierania zasobów zewnętrznych.
+
 ## Uruchomienie lokalne
 
 Z katalogu głównego repozytorium:

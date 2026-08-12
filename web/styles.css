@@ -137,13 +137,12 @@ a {
 }
 
 .brand-mark {
-  width: 34px;
-  height: 34px;
-  fill: none;
-  stroke: currentColor;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  stroke-width: 1.7;
+  width: 38px;
+  height: 38px;
+  flex: 0 0 38px;
+  border: 1px solid rgb(23 23 19 / 14%);
+  border-radius: 9px;
+  object-fit: cover;
 }
 
 .header-actions {
@@ -1771,8 +1770,10 @@ dialog::backdrop {
   }
 
   .brand-mark {
-    width: 30px;
-    height: 30px;
+    width: 34px;
+    height: 34px;
+    flex-basis: 34px;
+    border-radius: 8px;
   }
 
   .header-actions {
