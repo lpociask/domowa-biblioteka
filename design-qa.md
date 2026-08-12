@@ -1,73 +1,46 @@
-# Design QA — WWW zgodne z aplikacją iOS
+# Design QA — widok dużych okładek WWW
 
-## Materiał źródłowy
+- Source visual truth: `/private/tmp/HomeLibraryWeb-before-desktop.png`
+- Implementation screenshots: `/private/tmp/HomeLibraryWeb-covers-desktop-top.png`, `/private/tmp/HomeLibraryWeb-covers-mobile-press-final-3.png`, `/private/tmp/HomeLibraryWeb-list-mobile-catalog.png`, `/private/tmp/HomeLibraryWeb-real-cover-mobile.png`, `/private/tmp/HomeLibraryWeb-status-loaned-mobile.png`
+- Combined comparison evidence: `/private/tmp/polka-design-qa/comparison-final.png`
+- Viewports: desktop 1440 × 1000 CSS px; mobile 390 × 844 requested (browser content 375 × 812 CSS px)
+- Pixels/density: source 1425 × 2699 px; desktop implementation 1440 × 1000 px; mobile implementation 375 × 812 px; device scale factor 1. Full-view comparison used equal-width side-by-side canvases and a focused catalog crop.
+- State: demonstration collection, catalog tab, no filters; both `Okładki` and `Lista` checked. A real Open Library cover was also checked with the `Left Hand` filter.
 
-- Główna prawda wizualna: `/private/tmp/HomeLibrary-iOS-library-reference.png`
-- Dodatkowy wzorzec języka 5×12: `/Users/lpociask/Documents/magazyny/5x12/docs/screenshots/library-iphone.jpg`
-- Implementacja mobilna: `/private/tmp/HomeLibraryWeb-final-mobile-top-normalized-375x815.png`
-- Implementacja desktopowa: `/private/tmp/HomeLibraryWeb-final-desktop-top-1440x1000.png`
-- Szczegóły publikacji: `/private/tmp/HomeLibraryWeb-final-detail-mobile-390x844.png`
-- Widok serii prasy: `/private/tmp/HomeLibraryWeb-final-periodicals-mobile.png`
-- Porównanie pełnego widoku: `/private/tmp/HomeLibrary-Web-iOS-final-comparison.png`
-- Porównanie skupione na mastheadzie i metrykach: `/private/tmp/HomeLibrary-Web-iOS-focused-comparison.png`
+## Full-view comparison evidence
 
-## Normalizacja i stan
+The implementation preserves the source hierarchy and the selected large-cover catalog: four desktop cards, two mobile cards, cover-first proportions, title/author/location below, and an explicit view control. The broader page intentionally keeps the current 5×12 paper language instead of reverting the rest of the site to the old green design.
 
-- Źródło iOS: 1206 × 2622 px; proporcjonalnie znormalizowane do 375 × 815 px.
-- Implementacja: przeglądarka ustawiona na 390 × 844 CSS px, efektywny obszar treści 375 × 844 CSS px ze względu na pionowy pasek przewijania; kadr porównawczy 375 × 815 px, density factor 1.
-- Dodatkowe viewporty: 320 × 568, 820 × 1180 i 1440 × 1000 CSS px.
-- Stan: jasny motyw, zapełniona kolekcja. Źródło ma 6 egzemplarzy, fixture WWW ma 9; różnica danych nie jest różnicą wizualną.
-- Kadr WWW nie zawiera chromu przeglądarki, a źródło iOS zawiera systemowy pasek statusu. Porównanie ocenia właściwy interfejs aplikacji od mastheadu w dół.
+## Focused region comparison evidence
 
-## Ocena powierzchni wierności
+The catalog/control strip and first four covers were compared in the lower half of the combined comparison. Cover proportion remains approximately 0.74, the desktop grid is 4 columns, and the `Okładki`/`Lista` control is visible and usable. Mobile evidence confirms 2 columns at 375 CSS px without horizontal overflow and a flat, cover-free list after switching.
 
-- Typografia: redakcyjny krój serif dla mastheadów i tytułów oraz systemowy sans dla sterowania odpowiadają podziałowi iOS. Skala, waga, tracking mikrotekstu i zawijanie działają na 320–1440 px.
-- Rytm i układ: papierowa strona, cienkie reguły, płaski pasek czterech metryk, pomarańczowe CTA oraz wiersze publikacji z indeksami odwzorowują hierarchię iOS. Mobile nie ma poziomego overflow.
-- Kolory i tokeny: `#F4EDDF`, `#F0E6D2`, `#171713`, `#6D685E`, `#DD6B24`, `#A9470D` i `#B14E11` są zgodne z `LibraryTheme`.
-- Obrazy: użyto rzeczywistej tekstury papieru z aplikacji iOS. Okładka pojawia się wyłącznie wtedy, gdy istnieje prawdziwy bezpieczny URL; usunięto sztuczną okładkę z monogramem ze szczegółów.
-- Treść: WWW zachowuje komunikat o lokalnym zapisie GitHub Pages. Główne CTA to „Importuj kolekcję”, czyli webowy odpowiednik głównej akcji „Skanuj publikację” z iOS.
-- Ikony: istniejący zestaw liniowych ikon WWW zachowuje wspólną wagę i rozmiar. Dokładna zgodność glifów SF Symbols pozostaje opcjonalnym P3.
+## Required fidelity surfaces
 
-## Historia porównań i poprawek
+- Fonts and typography: current serif display and uppercase micro-label hierarchy are consistent with the iOS/5×12 language; cover typography and the title/author rhythm remain legible at desktop and mobile sizes.
+- Spacing and layout rhythm: 4/3/2/1 responsive grid; 44 px controls; stable card padding; no horizontal overflow in the tested mobile viewport.
+- Colors and visual tokens: paper, ink, muted ink, orange accent, thin rules, and restrained 8 px radii remain aligned with the current product system.
+- Image quality and asset fidelity: the large catalog-cover treatment from the existing first-version component is reused; safe Open Library images take over only after loading and use lazy loading. The catalog treatment remains visible while a remote image is pending or fails.
+- Copy/content: visible Polish labels `Okładki` and `Lista`, `aria-pressed`, `aria-controls`, publication status and location are preserved.
 
-### Iteracja 1 — zablokowana
+## Comparison history
 
-- [P0] Mobilny masthead miał 382 px szerokości przy 375 px obszaru treści; tytuł 50,7 px wypychał pomarańczową kropkę do osobnego wiersza i tworzył poziomy scroll.
-- [P1] Przyciski nagłówka miały 42 × 40 px.
-- [P1] Szczegóły bez prawdziwej okładki pokazywały sztuczną, kodową okładkę z monogramem.
-- [P2] Metryki mobilne były układem 2 × 2 zamiast płaskiego paska czterech wartości.
-- [P2] Mobilny toolbar filtrów był zbyt wysoki, a nad katalogiem brakowało równoważnego głównego CTA.
+1. Initial implementation restored large cards but also put catalog covers into the compact list and reused the old view preference. Fix: card covers are rendered only in `Okładki`; default and initial markup use `Lista`; the preference key was versioned.
+2. Review found eager-request risk because `src` preceded `loading="lazy"`, and an empty paper cover while a lazy image waited. Fix: image behavior attributes are set before `src`; catalog cover content stays visible until `has-cover-image`.
+3. Post-fix browser checks: 43/43 data tests pass, JS syntax passes, console has no errors, filters/detail opening work, grid/list persists, real cover loading is restricted to `covers.openlibrary.org`, and list rendering creates no cover image requests.
+4. Final mobile review found overlong press metadata in the two-column grid. Fix: the mobile cover view now uses the issue number (or year fallback) rather than duplicating the full issue date; `Wydanie 01` is compacted to `01`. Post-fix evidence is `/private/tmp/HomeLibraryWeb-covers-mobile-press-final-3.png`.
 
-### Wprowadzone poprawki
+## Findings
 
-- Masthead dostał osobny flexowy punkt akcentowy i kompaktową skalę 31 px; końcowy `scrollWidth == clientWidth` na 320 i 390 px.
-- Oba przyciski nagłówka i przycisk zamknięcia szczegółów mają minimum 44 × 44 px.
-- Szczegóły są pełnoekranowe na telefonie; bez realnej okładki blok obrazu nie jest renderowany.
-- Metryki układają się w jeden czterokolumnowy pasek na telefonie.
-- Filtry mają dwa pola w pierwszym rzędzie i pełną szerokość sortowania w drugim.
-- Dodano pełnoszerokie pomarańczowe CTA „Importuj kolekcję”.
+No actionable P0, P1, or P2 findings remain. The compact list intentionally remains text-only, including for publications with a remote cover: this preserves the current 5×12 rhythm and ensures ordinary browsing sends no image requests. Residual P3: manual VoiceOver interaction was not run; accessible names and pressed states were inspected through the rendered DOM.
 
-### Iteracja 2 — zaliczona
+## Primary interactions tested
 
-- Dowód po poprawkach: `/private/tmp/HomeLibrary-Web-iOS-final-comparison.png`.
-- Skupiony dowód mastheadu i metryk: `/private/tmp/HomeLibrary-Web-iOS-focused-comparison.png`.
-- Brak pozostałych P0/P1/P2. Różnice funkcjonalne — import zamiast skanowania oraz informacja o braku synchronizacji — są celowe dla statycznej strony GitHub Pages.
-
-## Sprawdzone interakcje
-
-- wyszukiwanie i stan braku wyników;
-- filtry typu i lokalizacji oraz sortowanie;
-- przełącznik siatka/lista;
-- zakładki Katalog/Serie prasy, w tym strzałka klawiatury;
-- szczegóły publikacji i zamknięcie dialogu;
-- import poprawnego `collection.json`, wybór scalania i zachowanie 9 egzemplarzy;
-- eksport uruchamia funkcję i pokazuje potwierdzenie;
-- skrót `⌘K` ustawia fokus w wyszukiwarce;
-- 44-punktowe cele dotykowe, 320 px compact, 390 px mobile, 820 px tablet, 1440 px desktop;
-- konsola przeglądarki: 0 błędów i 0 ostrzeżeń.
-
-## Pozostały P3
-
-- W przyszłości można zastąpić istniejące liniowe SVG ikonami z jednej biblioteki o metrykach jeszcze bliższych SF Symbols. Nie zmienia to hierarchii, obsługi ani spójności obecnego widoku.
+- switch `Lista` → `Okładki` → `Lista`;
+- persistence after reload;
+- search filter and opening publication detail;
+- real Open Library cover loading with `loading="lazy"`;
+- mobile 2-column grid and cover-free list;
+- absence of console errors.
 
 final result: passed

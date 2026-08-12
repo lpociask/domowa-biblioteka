@@ -14,7 +14,7 @@ import {
 } from "./lib/catalog-core.mjs";
 
 const STORAGE_KEY = "polka.collection.v1";
-const VIEW_KEY = "polka.catalog.view";
+const VIEW_KEY = "polka.catalog.view.v2";
 const MAX_IMPORT_BYTES = 25 * 1024 * 1024;
 
 const elements = {
@@ -66,7 +66,7 @@ const state = {
   collection: null,
   pendingImport: null,
   pendingFilename: "",
-  view: readLocalValue(VIEW_KEY) === "list" ? "list" : "grid",
+  view: readLocalValue(VIEW_KEY) === "grid" ? "grid" : "list",
   mode: "catalog",
   periodicalFilter: "all",
   toastTimer: null,
@@ -151,6 +151,15 @@ function issueLabel(publication) {
   return [publication.issue.number, publication.issue.date].filter(Boolean).join(" · ");
 }
 
+function compactCardContext(publication) {
+  if (publication.type !== "periodical") {
+    return publication.publicationYear ? String(publication.publicationYear) : "Bez daty";
+  }
+  const year = /^\d{4}/.exec(publication.issue?.date || "")?.[0] || publication.publicationYear || "";
+  const number = String(publication.issue?.number || "").replace(/^wydanie\s+/i, "").trim();
+  return number || (year ? String(year) : "Bez numeru");
+}
+
 function authorLabel(publication) {
   if (publication.authors.length) return publication.authors.join(", ");
   if (publication.publisher) return publication.publisher;
@@ -171,18 +180,23 @@ function makeCover(publication, { allowRemote = false, imageAlt = "" } = {}) {
     cover.classList.add("has-remote-source");
     const image = document.createElement("img");
     image.className = "publication-cover-image";
-    image.src = coverUrl;
     image.alt = imageAlt;
-    image.loading = "eager";
+    image.loading = allowRemote ? "lazy" : "eager";
     image.decoding = "async";
     image.referrerPolicy = "no-referrer";
     image.addEventListener("load", () => cover.classList.add("has-cover-image"), { once: true });
     image.addEventListener("error", () => {
-      const coverContainer = cover.closest(".publication-cover-wrap, .detail-cover-panel");
+      const detailPanel = cover.closest(".detail-cover-panel");
       const detailLayout = cover.closest(".detail-layout");
-      coverContainer?.remove();
-      detailLayout?.classList.add("without-cover");
+      if (detailPanel) {
+        detailPanel.remove();
+        detailLayout?.classList.add("without-cover");
+        return;
+      }
+      image.remove();
+      cover.classList.remove("has-remote-source", "has-cover-image");
     }, { once: true });
+    image.src = coverUrl;
     cover.append(image);
   }
   return cover;
@@ -200,9 +214,8 @@ function makeCard(entry, index) {
   card.setAttribute("aria-haspopup", "dialog");
   card.setAttribute("aria-controls", "detail-dialog");
 
-  const coverUrl = automaticCoverUrl(publication.metadata.coverUrl);
   let coverWrap = null;
-  if (coverUrl) {
+  if (state.view === "grid") {
     coverWrap = makeElement("div", "publication-cover-wrap");
     coverWrap.append(makeCover(publication, {
       allowRemote: true,
@@ -216,7 +229,8 @@ function makeCard(entry, index) {
   kicker.append(
     makeElement("span", "publication-index", String(index + 1).padStart(2, "0")),
     makeElement("span", "publication-kicker-rule", ""),
-    makeElement("span", "", `${typeLabel(publication)} · ${context}`),
+    makeElement("span", "publication-context-full", `${typeLabel(publication)} · ${context}`),
+    makeElement("span", "publication-context-compact", `${typeLabel(publication)} · ${compactCardContext(publication)}`),
   );
   info.append(
     kicker,

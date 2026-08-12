@@ -121,7 +121,7 @@ Import JSON nie jest synchronizacją ani mechanizmem rozwiązywania konfliktów.
 
 Eksport może zawierać nazwy pomieszczeń, dokładne ścieżki półek i prywatne notatki. Aplikacja nie wysyła go automatycznie do chmury. Użytkownik wybiera sposób transferu i miejsce kopii, a prawdziwe eksporty nie powinny trafiać do repozytorium ani publicznego hostingu.
 
-Okładki Open Library są pobierane tylko w przepływie świadomie uruchomionego lookupu albo po otwarciu szczegółów. Lista korzysta z lokalnego cache i nie odpytuje serwera obrazów podczas przewijania. WWW nie pobiera całej listy okładek podczas otwierania kolekcji; znany obraz Open Library jest ładowany dopiero w szczegółach publikacji.
+Okładki Open Library są pobierane tylko w przepływie świadomie uruchomionego lookupu, po wybraniu na WWW widoku „Okładki” albo po otwarciu szczegółów. Domyślna lista nie odpytuje serwera obrazów podczas przewijania. WWW nie pobiera całej listy okładek podczas otwierania kolekcji; zewnętrzne obrazy pojawiają się dopiero po świadomej zmianie widoku lub wejściu w szczegóły publikacji.
 
 ## Migracje
 

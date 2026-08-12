@@ -161,11 +161,13 @@
               </select>
             </label>
             <div class="view-switch" role="group" aria-label="Sposób wyświetlania">
-              <button class="view-button is-active" id="grid-view-button" type="button" aria-pressed="true" aria-label="Widok kafelków">
+              <button class="view-button" id="grid-view-button" type="button" aria-pressed="false" aria-label="Okładki — widok katalogu" aria-controls="publication-grid">
                 <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="6" height="6" rx="1" /><rect x="14" y="4" width="6" height="6" rx="1" /><rect x="4" y="14" width="6" height="6" rx="1" /><rect x="14" y="14" width="6" height="6" rx="1" /></svg>
+                <span>Okładki</span>
               </button>
-              <button class="view-button" id="list-view-button" type="button" aria-pressed="false" aria-label="Widok listy">
+              <button class="view-button is-active" id="list-view-button" type="button" aria-pressed="true" aria-label="Lista — widok katalogu" aria-controls="publication-grid">
                 <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6h11M9 12h11M9 18h11" /><circle cx="5" cy="6" r="1" /><circle cx="5" cy="12" r="1" /><circle cx="5" cy="18" r="1" /></svg>
+                <span>Lista</span>
               </button>
             </div>
           </div>
@@ -176,7 +178,7 @@
             <button class="clear-filters" id="clear-filters-button" type="button" hidden>Wyczyść filtry</button>
           </div>
 
-          <div class="publication-grid" id="publication-grid" aria-busy="true"></div>
+          <div class="publication-grid is-list" id="publication-grid" aria-busy="true"></div>
 
           <div class="empty-state" id="empty-state" hidden>
             <h3>Nie znaleźliśmy takiej publikacji</h3>
