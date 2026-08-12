@@ -32,6 +32,19 @@ final class PilotDashboardViewTests: XCTestCase {
         )
     }
 
+    func testCompletedItemsSubtractSuccessfulQuickAddUndo() {
+        let report = PilotReportBuilder.build(from: [
+            record(1, .catalog(.init(
+                publicationKind: .book,
+                outcome: .completed,
+                activeMilliseconds: 10_000
+            ))),
+            record(2, .mutation(.init(action: .undoAdd, outcome: .completed)))
+        ])
+
+        XCTAssertEqual(PilotDashboardPresenter.completedItems(in: report), 0)
+    }
+
     func testProgressSummaryDistinguishesMinimumAndTarget() {
         let minimumReport = reportWithCompletedBooks(100)
         let targetReport = reportWithCompletedBooks(200)

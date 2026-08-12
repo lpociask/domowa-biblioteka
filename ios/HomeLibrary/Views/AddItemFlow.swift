@@ -1100,7 +1100,7 @@ struct AddItemFlow: View {
             if result.didUndo {
                 _ = catalogingSession.undoLastSaved(itemID: recentSaveNotice.itemID)
                 recordPilotEvent(
-                    .mutation(PilotMutationMetric(action: .undo, outcome: .completed))
+                    .mutation(PilotMutationMetric(action: .undoAdd, outcome: .completed))
                 )
                 UINotificationFeedbackGenerator().notificationOccurred(.success)
                 UIAccessibility.post(
@@ -1116,7 +1116,7 @@ struct AddItemFlow: View {
             self.recentSaveNotice = nil
         } catch {
             recordPilotEvent(
-                .mutation(PilotMutationMetric(action: .undo, outcome: .failed))
+                .mutation(PilotMutationMetric(action: .undoAdd, outcome: .failed))
             )
             validationMessage = "Nie udało się cofnąć ostatniego dodania: \(error.localizedDescription)"
         }

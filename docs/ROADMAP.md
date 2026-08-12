@@ -93,3 +93,5 @@ Trzy KPI decyzyjne to:
 3. odsetek semantycznie poprawnych odtworzeń iOS → WWW → iOS.
 
 Wyniki interpretujemy razem z guardrailami: awarie i anulowania, brak lokalizacji, duplikaty/override, skuteczność OCR oraz sukces wyszukiwania. Zwykły eksport lub import nie jest liczony jako poprawne odtworzenie — trzeba uruchomić osobną akcję weryfikacji i wskazać plik, który przeszedł przez WWW.
+
+Postęp kolekcji jest liczony netto: szybkie cofnięcie ostatniego seryjnego zapisu odejmuje ten obiekt od licznika pilota, pozostawiając samo cofnięcie jako guardrail jakości przepływu.

@@ -27,7 +27,11 @@ enum PilotDashboardPresenter {
     static let targetPilotItems = 200
 
     static func completedItems(in report: PilotReport) -> Int {
-        report.catalog.reduce(0) { $0 + $1.completed }
+        let saves = report.catalog.reduce(0) { $0 + $1.completed }
+        let revertedAdds = report.mutations
+            .first { $0.action == .undoAdd }?
+            .completed ?? 0
+        return max(0, saves - revertedAdds)
     }
 
     static func progressValue(in report: PilotReport) -> Double {

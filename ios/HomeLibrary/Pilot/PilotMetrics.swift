@@ -135,6 +135,8 @@ enum PilotMutationAction: String, Codable, CaseIterable, Sendable {
     case move
     case delete
     case undo
+    /// Reverses the most recent serial catalog save, so progress can stay net.
+    case undoAdd
     case duplicatePrevented
     case duplicateOverride
 }
