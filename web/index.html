@@ -94,7 +94,27 @@
           <button class="text-button" id="reset-button" type="button">Przywróć dane przykładowe</button>
         </div>
 
-        <div class="catalog-toolbar">
+        <div class="catalog-mode-switch" role="tablist" aria-label="Widok kolekcji">
+          <button
+            class="catalog-mode-button is-active"
+            id="catalog-tab"
+            type="button"
+            role="tab"
+            aria-selected="true"
+            aria-controls="catalog-panel"
+          >Katalog</button>
+          <button
+            class="catalog-mode-button"
+            id="periodicals-tab"
+            type="button"
+            role="tab"
+            aria-selected="false"
+            aria-controls="periodicals-panel"
+          >Serie prasy</button>
+        </div>
+
+        <div id="catalog-panel" role="tabpanel" aria-labelledby="catalog-tab">
+          <div class="catalog-toolbar">
           <div class="search-field">
             <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5" /><path d="m16 16 4 4" /></svg>
             <label class="sr-only" for="search-input">Szukaj w kolekcji</label>
@@ -141,22 +161,52 @@
               </button>
             </div>
           </div>
-        </div>
-
-        <div class="results-meta">
-          <p id="results-count" aria-live="polite">Ładowanie katalogu…</p>
-          <button class="clear-filters" id="clear-filters-button" type="button" hidden>Wyczyść filtry</button>
-        </div>
-
-        <div class="publication-grid" id="publication-grid" aria-busy="true"></div>
-
-        <div class="empty-state" id="empty-state" hidden>
-          <div class="empty-illustration" aria-hidden="true">
-            <span></span><span></span><span></span>
           </div>
-          <h3>Nie znaleźliśmy takiej publikacji</h3>
-          <p>Spróbuj krótszej frazy albo usuń część filtrów.</p>
-          <button class="button button-secondary" id="empty-clear-button" type="button">Wyczyść filtry</button>
+
+          <div class="results-meta">
+            <p id="results-count" aria-live="polite">Ładowanie katalogu…</p>
+            <button class="clear-filters" id="clear-filters-button" type="button" hidden>Wyczyść filtry</button>
+          </div>
+
+          <div class="publication-grid" id="publication-grid" aria-busy="true"></div>
+
+          <div class="empty-state" id="empty-state" hidden>
+            <div class="empty-illustration" aria-hidden="true">
+              <span></span><span></span><span></span>
+            </div>
+            <h3>Nie znaleźliśmy takiej publikacji</h3>
+            <p>Spróbuj krótszej frazy albo usuń część filtrów.</p>
+            <button class="button button-secondary" id="empty-clear-button" type="button">Wyczyść filtry</button>
+          </div>
+        </div>
+
+        <div id="periodicals-panel" role="tabpanel" aria-labelledby="periodicals-tab" hidden>
+          <div class="periodical-toolbar">
+            <div>
+              <p class="periodical-toolbar-title">Ciągłość kolekcji</p>
+              <p class="periodical-toolbar-description">Luki i powtórzenia są wyliczane lokalnie z bieżącego katalogu.</p>
+            </div>
+            <div class="periodical-filters" role="group" aria-label="Filtr serii prasy">
+              <button class="periodical-filter is-active" type="button" data-periodical-filter="all" aria-pressed="true">Wszystkie</button>
+              <button class="periodical-filter" type="button" data-periodical-filter="missing" aria-pressed="false">Luki</button>
+              <button class="periodical-filter" type="button" data-periodical-filter="duplicates" aria-pressed="false">Duplikaty</button>
+            </div>
+          </div>
+
+          <div class="results-meta periodical-results-meta">
+            <p id="periodical-results-count" aria-live="polite">Ładowanie serii…</p>
+            <p id="periodical-exclusions"></p>
+          </div>
+
+          <div class="periodical-series-grid" id="periodical-series-grid" aria-busy="true"></div>
+
+          <div class="empty-state" id="periodical-empty-state" hidden>
+            <div class="empty-illustration" aria-hidden="true">
+              <span></span><span></span><span></span>
+            </div>
+            <h3>Brak serii dla tego filtra</h3>
+            <p>Dodaj numery prasy albo wybierz inny filtr.</p>
+          </div>
         </div>
       </section>
     </main>

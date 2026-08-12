@@ -298,6 +298,169 @@ final class CollectionImporterTests: XCTestCase {
         }
     }
 
+    func testRejectsPeriodicalWhoseEANConflictsWithValidCompositeBarcode() {
+        let data = canonicalData(
+            publications: """
+            [
+              {
+                "id": "pub-conflicting-periodical-ean",
+                "type": "periodical",
+                "title": "Miesięcznik testowy",
+                "authors": [],
+                "identifiers": {
+                  "ean": "9770033248007",
+                  "barcode": "9771234567003+05"
+                },
+                "createdAt": "2026-08-11T10:00:00Z",
+                "updatedAt": "2026-08-11T10:00:00Z"
+              }
+            ]
+            """,
+            ownedItems: """
+            [
+              {
+                "id": "copy-conflicting-periodical-ean",
+                "publicationId": "pub-conflicting-periodical-ean",
+                "locationPath": [],
+                "status": "owned",
+                "addedAt": "2026-08-11T10:00:00Z",
+                "updatedAt": "2026-08-11T10:00:00Z"
+              }
+            ]
+            """
+        )
+        let reason = "„pub-conflicting-periodical-ean” ma niespójne identyfikatory: " +
+            "EAN „9770033248007” nie zgadza się z głównym kodem „9771234567003” " +
+            "zapisanym w barcode."
+
+        XCTAssertThrowsError(try CollectionImporter.prepare(data: data)) { error in
+            XCTAssertEqual(error as? CollectionImportError, .invalidPublication(reason))
+            XCTAssertTrue(error.localizedDescription.contains("niespójne identyfikatory"))
+        }
+    }
+
+    func testRejectsPeriodicalSupplementStoredInsideEANField() {
+        for invalidEAN in ["9770033248007+05", "977003324800705"] {
+            let data = canonicalData(
+                publications: """
+                [
+                  {
+                    "id": "pub-supplement-inside-ean",
+                    "type": "periodical",
+                    "title": "Miesięcznik testowy",
+                    "authors": [],
+                    "identifiers": {
+                      "ean": "\(invalidEAN)",
+                      "barcode": "9770033248007+05"
+                    },
+                    "createdAt": "2026-08-11T10:00:00Z",
+                    "updatedAt": "2026-08-11T10:00:00Z"
+                  }
+                ]
+                """,
+                ownedItems: """
+                [
+                  {
+                    "id": "copy-supplement-inside-ean",
+                    "publicationId": "pub-supplement-inside-ean",
+                    "locationPath": [],
+                    "status": "owned",
+                    "addedAt": "2026-08-11T10:00:00Z",
+                    "updatedAt": "2026-08-11T10:00:00Z"
+                  }
+                ]
+                """
+            )
+
+            XCTAssertThrowsError(try CollectionImporter.prepare(data: data)) { error in
+                guard case .invalidPublication(let reason) = error as? CollectionImportError else {
+                    return XCTFail("Oczekiwano invalidPublication, otrzymano \(error)")
+                }
+                XCTAssertTrue(reason.contains("Pole ean może zawierać wyłącznie 13 cyfr"))
+            }
+        }
+    }
+
+    func testRejectsMalformedSuffixStoredInsideEANField() {
+        for invalidEAN in ["9770033248007+123", "9770033248007+abc"] {
+            let data = canonicalData(
+                publications: """
+                [
+                  {
+                    "id": "pub-malformed-ean-suffix",
+                    "type": "periodical",
+                    "title": "Miesięcznik testowy",
+                    "authors": [],
+                    "identifiers": { "ean": "\(invalidEAN)" },
+                    "createdAt": "2026-08-11T10:00:00Z",
+                    "updatedAt": "2026-08-11T10:00:00Z"
+                  }
+                ]
+                """,
+                ownedItems: """
+                [
+                  {
+                    "id": "copy-malformed-ean-suffix",
+                    "publicationId": "pub-malformed-ean-suffix",
+                    "locationPath": [],
+                    "status": "owned",
+                    "addedAt": "2026-08-11T10:00:00Z",
+                    "updatedAt": "2026-08-11T10:00:00Z"
+                  }
+                ]
+                """
+            )
+
+            XCTAssertThrowsError(try CollectionImporter.prepare(data: data)) { error in
+                guard case .invalidPublication(let reason) = error as? CollectionImportError else {
+                    return XCTFail("Oczekiwano invalidPublication, otrzymano \(error)")
+                }
+                XCTAssertTrue(reason.contains("Pole ean może zawierać wyłącznie 13 cyfr"))
+            }
+        }
+    }
+
+    func testKeepsLegacyRawBarcodeThatIsNotAValidPeriodicalComposite() throws {
+        let data = canonicalData(
+            publications: """
+            [
+              {
+                "id": "pub-legacy-periodical-barcode",
+                "type": "periodical",
+                "title": "Archiwalny miesięcznik",
+                "authors": [],
+                "identifiers": {
+                  "ean": "9770033248007",
+                  "barcode": "kod dostawcy / zapis historyczny"
+                },
+                "createdAt": "2026-08-11T10:00:00Z",
+                "updatedAt": "2026-08-11T10:00:00Z"
+              }
+            ]
+            """,
+            ownedItems: """
+            [
+              {
+                "id": "copy-legacy-periodical-barcode",
+                "publicationId": "pub-legacy-periodical-barcode",
+                "locationPath": [],
+                "status": "owned",
+                "addedAt": "2026-08-11T10:00:00Z",
+                "updatedAt": "2026-08-11T10:00:00Z"
+              }
+            ]
+            """
+        )
+        let container = try makeContainer()
+        let context = container.mainContext
+
+        _ = try CollectionImporter.importCollection(data: data, into: context)
+
+        let publication = try XCTUnwrap(context.fetch(FetchDescriptor<Publication>()).first)
+        XCTAssertEqual(publication.ean, "9770033248007")
+        XCTAssertEqual(publication.barcode, "kod dostawcy / zapis historyczny")
+    }
+
     func testDropsUnsafeLegacyCoverWithoutRejectingCanonicalPayload() throws {
         let invalidURLs = [
             "http://covers.openlibrary.org/b/id/123-M.jpg",

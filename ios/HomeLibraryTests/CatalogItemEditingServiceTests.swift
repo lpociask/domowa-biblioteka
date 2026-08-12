@@ -530,6 +530,23 @@ final class CatalogItemEditingServiceTests: XCTestCase {
         XCTAssertEqual(publication.isbn13, "")
     }
 
+    func testRejectsSupplementEnteredOnlyInEANFieldWithoutLosingItSilently() throws {
+        let context = try makeContext()
+        let (publication, item) = try insertFixture(in: context)
+        publication.publicationType = .periodical
+        try context.save()
+        let service = CatalogItemEditingService(modelContext: context)
+        let prepared = try service.prepare(itemID: item.id)
+        var draft = prepared.draft
+        draft.publication.ean = "9770033248007+05"
+
+        XCTAssertThrowsError(try service.edit(prepared, draft: draft)) { error in
+            XCTAssertEqual(error as? CatalogItemEditingError, .invalidEAN)
+        }
+        XCTAssertEqual(publication.ean, "")
+        XCTAssertEqual(publication.barcode, "")
+    }
+
     func testNormalizesISBN10EANAndISSNBeforeSaving() throws {
         let context = try makeContext()
         let (publication, item) = try insertFixture(in: context)
@@ -545,6 +562,159 @@ final class CatalogItemEditingServiceTests: XCTestCase {
         XCTAssertEqual(publication.isbn13, "9780306406157")
         XCTAssertEqual(publication.ean, "5901234123457")
         XCTAssertEqual(publication.issn, "2049-3630")
+    }
+
+    func testChangingOnlyEANRemovesCompositeBarcodeWithStaleMainCode() throws {
+        let context = try makeContext()
+        let (publication, item) = try insertFixture(in: context)
+        publication.publicationType = .periodical
+        publication.ean = "9770033248007"
+        publication.barcode = "9770033248007+05"
+        try context.save()
+        let service = CatalogItemEditingService(modelContext: context)
+        let prepared = try service.prepare(itemID: item.id)
+        var draft = prepared.draft
+        draft.publication.ean = "9771050124008"
+
+        _ = try service.edit(prepared, draft: draft)
+
+        XCTAssertEqual(publication.ean, "9771050124008")
+        XCTAssertEqual(publication.barcode, "")
+    }
+
+    func testChangingOnlyEANRemovesBareBarcodeWithStaleMainCode() throws {
+        let context = try makeContext()
+        let (publication, item) = try insertFixture(in: context)
+        publication.publicationType = .periodical
+        publication.ean = "9770033248007"
+        publication.barcode = "9770033248007"
+        try context.save()
+        let service = CatalogItemEditingService(modelContext: context)
+        let prepared = try service.prepare(itemID: item.id)
+        var draft = prepared.draft
+        draft.publication.ean = "9771050124008"
+
+        _ = try service.edit(prepared, draft: draft)
+
+        XCTAssertEqual(publication.ean, "9771050124008")
+        XCTAssertEqual(publication.barcode, "")
+    }
+
+    func testEditingCompositeBarcodeCanonicalizesItAndSynchronizesMainEAN() throws {
+        let context = try makeContext()
+        let (publication, item) = try insertFixture(in: context)
+        publication.publicationType = .periodical
+        publication.ean = "9770033248007"
+        try context.save()
+        let service = CatalogItemEditingService(modelContext: context)
+        let prepared = try service.prepare(itemID: item.id)
+        var draft = prepared.draft
+        draft.publication.barcode = "9771050124008 12345"
+
+        _ = try service.edit(prepared, draft: draft)
+
+        XCTAssertEqual(publication.ean, "9771050124008")
+        XCTAssertEqual(publication.barcode, "9771050124008+12345")
+    }
+
+    func testEditingBarePeriodicalBarcodeCanonicalizesItAndSynchronizesMainEAN() throws {
+        let context = try makeContext()
+        let (publication, item) = try insertFixture(in: context)
+        publication.publicationType = .periodical
+        publication.ean = "9770033248007"
+        try context.save()
+        let service = CatalogItemEditingService(modelContext: context)
+        let prepared = try service.prepare(itemID: item.id)
+        var draft = prepared.draft
+        draft.publication.barcode = "977-1050-12400-8"
+
+        _ = try service.edit(prepared, draft: draft)
+
+        XCTAssertEqual(publication.ean, "9771050124008")
+        XCTAssertEqual(publication.barcode, "9771050124008")
+    }
+
+    func testRejectsConflictingEditedEANAndCompositeBarcodeWithoutMutation() throws {
+        let context = try makeContext()
+        let baseline = Date(timeIntervalSince1970: 1_700_000_000)
+        let (publication, item) = try insertFixture(in: context, timestamp: baseline)
+        publication.publicationType = .periodical
+        publication.ean = "9770033248007"
+        publication.barcode = "9770033248007+05"
+        try context.save()
+        let service = CatalogItemEditingService(modelContext: context)
+        let prepared = try service.prepare(itemID: item.id)
+        var draft = prepared.draft
+        draft.publication.ean = "9771050124008"
+        draft.publication.barcode = "9770033248007+06"
+
+        XCTAssertThrowsError(try service.edit(prepared, draft: draft)) { error in
+            XCTAssertEqual(error as? CatalogItemEditingError, .periodicalEANConflict)
+        }
+        XCTAssertEqual(publication.ean, "9770033248007")
+        XCTAssertEqual(publication.barcode, "9770033248007+05")
+        XCTAssertEqual(publication.updatedAt, baseline)
+    }
+
+    func testRejectsConflictingEditedEANAndBarePeriodicalBarcodeWithoutMutation() throws {
+        let context = try makeContext()
+        let baseline = Date(timeIntervalSince1970: 1_700_000_000)
+        let (publication, item) = try insertFixture(in: context, timestamp: baseline)
+        publication.publicationType = .periodical
+        publication.ean = "9770033248007"
+        publication.barcode = "9770033248007"
+        try context.save()
+        let service = CatalogItemEditingService(modelContext: context)
+        let prepared = try service.prepare(itemID: item.id)
+        var draft = prepared.draft
+        draft.publication.ean = "9771050124008"
+        draft.publication.barcode = "977-0033-24800-7"
+
+        XCTAssertThrowsError(try service.edit(prepared, draft: draft)) { error in
+            XCTAssertEqual(error as? CatalogItemEditingError, .periodicalEANConflict)
+        }
+        XCTAssertEqual(publication.ean, "9770033248007")
+        XCTAssertEqual(publication.barcode, "9770033248007")
+        XCTAssertEqual(publication.updatedAt, baseline)
+    }
+
+    func testRejectsExplicitMalformedCompositeBarcodeWithoutMutation() throws {
+        let context = try makeContext()
+        let baseline = Date(timeIntervalSince1970: 1_700_000_000)
+        let (publication, item) = try insertFixture(in: context, timestamp: baseline)
+        publication.publicationType = .periodical
+        publication.ean = "9770033248007"
+        try context.save()
+        let service = CatalogItemEditingService(modelContext: context)
+        let prepared = try service.prepare(itemID: item.id)
+        var draft = prepared.draft
+        draft.publication.barcode = "9770033248007+123"
+
+        XCTAssertThrowsError(try service.edit(prepared, draft: draft)) { error in
+            XCTAssertEqual(error as? CatalogItemEditingError, .invalidPeriodicalBarcode)
+        }
+        XCTAssertEqual(publication.ean, "9770033248007")
+        XCTAssertEqual(publication.barcode, "")
+        XCTAssertEqual(publication.updatedAt, baseline)
+    }
+
+    func testTitleEditPreservesUntouchedHistoricalRawPeriodicalBarcode() throws {
+        let context = try makeContext()
+        let (publication, item) = try insertFixture(in: context)
+        publication.publicationType = .periodical
+        publication.ean = "historyczny-ean"
+        publication.barcode = "kod dostawcy / zapis historyczny"
+        try context.save()
+        let service = CatalogItemEditingService(modelContext: context)
+        let prepared = try service.prepare(itemID: item.id)
+        var draft = prepared.draft
+        draft.publication.title = "Nowy tytuł pisma"
+
+        _ = try service.edit(prepared, draft: draft)
+
+        XCTAssertEqual(publication.title, "Nowy tytuł pisma")
+        XCTAssertEqual(publication.ean, "historyczny-ean")
+        XCTAssertEqual(publication.barcode, "kod dostawcy / zapis historyczny")
     }
 
     func testRejectsIdentityCollisionWithAnotherPublication() throws {
@@ -598,7 +768,7 @@ final class CatalogItemEditingServiceTests: XCTestCase {
         XCTAssertEqual(publication.ean, "")
     }
 
-    func testRejectsSharedEANForPeriodicals() throws {
+    func testAllowsSharedBaseEAN977WithoutConcretePeriodicalIssueIdentity() throws {
         let context = try makeContext()
         let (publication, item) = try insertFixture(in: context)
         publication.publicationType = .periodical
@@ -606,7 +776,7 @@ final class CatalogItemEditingServiceTests: XCTestCase {
         let conflicting = Publication(
             type: .periodical,
             title: "Miesięcznik B",
-            ean: "5901234123457",
+            ean: "9770033248007",
             issueNumber: "2/2026"
         )
         context.insert(conflicting)
@@ -614,7 +784,31 @@ final class CatalogItemEditingServiceTests: XCTestCase {
         let service = CatalogItemEditingService(modelContext: context)
         let prepared = try service.prepare(itemID: item.id)
         var draft = prepared.draft
-        draft.publication.ean = "5901234123457"
+        draft.publication.ean = "9770033248007"
+
+        _ = try service.edit(prepared, draft: draft)
+
+        XCTAssertEqual(publication.ean, "9770033248007")
+    }
+
+    func testRejectsExactPeriodicalCompositeBarcodeCollisionWithoutIssueFields() throws {
+        let context = try makeContext()
+        let (publication, item) = try insertFixture(in: context)
+        publication.publicationType = .periodical
+        publication.title = "Miesięcznik A"
+        let conflicting = Publication(
+            type: .periodical,
+            title: "Miesięcznik B",
+            ean: "9770033248007",
+            barcode: "9770033248007+05"
+        )
+        context.insert(conflicting)
+        try context.save()
+        let service = CatalogItemEditingService(modelContext: context)
+        let prepared = try service.prepare(itemID: item.id)
+        var draft = prepared.draft
+        draft.publication.ean = "9770033248007"
+        draft.publication.barcode = "9770033248007+05"
 
         XCTAssertThrowsError(try service.edit(prepared, draft: draft)) { error in
             XCTAssertEqual(
@@ -623,6 +817,65 @@ final class CatalogItemEditingServiceTests: XCTestCase {
             )
         }
         XCTAssertEqual(publication.ean, "")
+        XCTAssertEqual(publication.barcode, "")
+    }
+
+    func testDifferentPeriodicalSupplementsOverrideMatchingISSNAndIssueFields() throws {
+        let context = try makeContext()
+        let (publication, item) = try insertFixture(in: context)
+        publication.publicationType = .periodical
+        publication.title = "Miesięcznik A"
+        publication.issn = "0033-2488"
+        publication.issueNumber = "8/2026"
+        let conflicting = Publication(
+            type: .periodical,
+            title: "Miesięcznik B",
+            issn: "0033-2488",
+            ean: "9770033248007",
+            barcode: "9770033248007+05",
+            issueNumber: "8/2026"
+        )
+        context.insert(conflicting)
+        try context.save()
+        let service = CatalogItemEditingService(modelContext: context)
+        let prepared = try service.prepare(itemID: item.id)
+        var draft = prepared.draft
+        draft.publication.ean = "9770033248007"
+        draft.publication.barcode = "9770033248007+06"
+
+        _ = try service.edit(prepared, draft: draft)
+
+        XCTAssertEqual(publication.ean, "9770033248007")
+        XCTAssertEqual(publication.barcode, "9770033248007+06")
+    }
+
+    func testDifferentExplicitMainEANsOverrideMatchingSupplementISSNAndIssueFields() throws {
+        let context = try makeContext()
+        let (publication, item) = try insertFixture(in: context)
+        publication.publicationType = .periodical
+        publication.title = "Miesięcznik A"
+        publication.issn = "0033-2488"
+        publication.issueNumber = "8/2026"
+        let otherMainEAN = Publication(
+            type: .periodical,
+            title: "Miesięcznik B",
+            issn: "0033-2488",
+            ean: "9770033248014",
+            barcode: "9770033248014+05",
+            issueNumber: "8/2026"
+        )
+        context.insert(otherMainEAN)
+        try context.save()
+        let service = CatalogItemEditingService(modelContext: context)
+        let prepared = try service.prepare(itemID: item.id)
+        var draft = prepared.draft
+        draft.publication.ean = "9770033248007"
+        draft.publication.barcode = "9770033248007+05"
+
+        _ = try service.edit(prepared, draft: draft)
+
+        XCTAssertEqual(publication.ean, "9770033248007")
+        XCTAssertEqual(publication.barcode, "9770033248007+05")
     }
 
     func testIdentityConflictChoosesDeterministicLowestUUID() throws {

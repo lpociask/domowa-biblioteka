@@ -252,6 +252,164 @@ final class ExistingPublicationMatcherTests: XCTestCase {
         ))
     }
 
+    func testMatchesPeriodicalByExactEAN977AndSupplementWithoutIssueFields() throws {
+        let publication = Publication(
+            type: .periodical,
+            title: "Miesięcznik",
+            ean: "9770033248007",
+            barcode: "9770033248007+05"
+        )
+        let item = OwnedItem(publication: publication, locationPathText: "Salon / Stolik")
+
+        let match = try XCTUnwrap(ExistingPublicationMatcher.match(
+            in: [item],
+            type: .periodical,
+            isbn13: "",
+            issn: "",
+            ean: "9770033248007",
+            barcode: "9770033248007+05",
+            issueNumber: "",
+            issueDate: "",
+            locationPath: LocationPath("Salon / Stolik")
+        ))
+
+        XCTAssertEqual(match.publication.id, publication.id)
+        XCTAssertEqual(match.kind, .possibleRepeatScan)
+    }
+
+    func testExactSupplementDoesNotOverrideConflictingIssueFields() {
+        let publication = Publication(
+            type: .periodical,
+            title: "Miesięcznik",
+            ean: "9770033248007",
+            barcode: "9770033248007+05",
+            issueNumber: "5/2025",
+            issueDate: "2025-05"
+        )
+
+        XCTAssertNil(ExistingPublicationMatcher.match(
+            in: [OwnedItem(publication: publication, locationPathText: "")],
+            type: .periodical,
+            isbn13: "",
+            issn: "",
+            ean: "9770033248007",
+            barcode: "9770033248007+05",
+            issueNumber: "5/2026",
+            issueDate: "2026-05"
+        ))
+    }
+
+    func testDoesNotMergeFallbackWhenExplicitPeriodicalMainEANsConflict() {
+        let publication = Publication(
+            type: .periodical,
+            title: "Miesięcznik",
+            issn: "0033-2488",
+            ean: "9770033248007",
+            barcode: "9770033248007",
+            issueNumber: "8/2026"
+        )
+
+        XCTAssertNil(ExistingPublicationMatcher.match(
+            in: [OwnedItem(publication: publication, locationPathText: "")],
+            type: .periodical,
+            isbn13: "",
+            issn: "0033-2488",
+            ean: "9771234567003",
+            barcode: "9771234567003+05",
+            issueNumber: "8/2026",
+            issueDate: ""
+        ))
+    }
+
+    func testDoesNotMergePeriodicalsWithDifferentNonemptySupplements() {
+        let publication = Publication(
+            type: .periodical,
+            title: "Miesięcznik",
+            issn: "0033-2488",
+            ean: "9770033248007",
+            barcode: "9770033248007+05",
+            issueNumber: "8/2026",
+            issueDate: "2026-08"
+        )
+
+        XCTAssertNil(ExistingPublicationMatcher.match(
+            in: [OwnedItem(publication: publication, locationPathText: "")],
+            type: .periodical,
+            isbn13: "",
+            issn: "0033-2488",
+            ean: "9770033248007",
+            barcode: "9770033248007+06",
+            issueNumber: "8/2026",
+            issueDate: "2026-08"
+        ))
+    }
+
+    func testFallsBackToISSNAndIssueWhenOnlyOnePeriodicalHasSupplement() throws {
+        let publication = Publication(
+            type: .periodical,
+            title: "Miesięcznik",
+            issn: "0033-2488",
+            ean: "9770033248007",
+            barcode: "9770033248007",
+            issueNumber: "8/2026"
+        )
+
+        let match = try XCTUnwrap(ExistingPublicationMatcher.match(
+            in: [OwnedItem(publication: publication, locationPathText: "")],
+            type: .periodical,
+            isbn13: "",
+            issn: "0033-2488",
+            ean: "9770033248007",
+            barcode: "9770033248007+12345",
+            issueNumber: "8/2026",
+            issueDate: ""
+        ))
+
+        XCTAssertEqual(match.publication.id, publication.id)
+    }
+
+    func testBaseEAN977AloneDoesNotIdentifyPeriodicalIssue() {
+        let publication = Publication(
+            type: .periodical,
+            title: "Miesięcznik",
+            ean: "9770033248007",
+            barcode: "9770033248007"
+        )
+
+        XCTAssertNil(ExistingPublicationMatcher.match(
+            in: [OwnedItem(publication: publication, locationPathText: "")],
+            type: .periodical,
+            isbn13: "",
+            issn: "",
+            ean: "9770033248007",
+            barcode: "9770033248007",
+            issueNumber: "",
+            issueDate: ""
+        ))
+    }
+
+    func testBookMatchingIgnoresBarcodeSupplement() throws {
+        let publication = Publication(
+            type: .book,
+            title: "Książka",
+            isbn13: "9780306406157",
+            barcode: "9780306406157+05"
+        )
+
+        let match = try XCTUnwrap(ExistingPublicationMatcher.match(
+            in: [OwnedItem(publication: publication, locationPathText: "")],
+            type: .book,
+            isbn13: "9780306406157",
+            issn: "",
+            ean: "",
+            barcode: "9780306406157+06",
+            issueNumber: "",
+            issueDate: ""
+        ))
+
+        XCTAssertEqual(match.publication.id, publication.id)
+    }
+
     func testMatchesConcretePeriodicalIssueByISSNAndIssueNumber() throws {
         let publication = Publication(
             type: .periodical,

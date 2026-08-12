@@ -92,7 +92,7 @@ struct ScannerStep: View {
             Text("KOD Z TYŁU OKŁADKI")
                 .font(.caption2.weight(.bold))
                 .tracking(1.45)
-            Text("Ustaw w ramce 13 cyfr: 978/979 dla książki albo 977 dla prasy.")
+            Text("Ustaw w ramce cały kod: 978/979 dla książki albo 977 dla prasy. Przy czasopiśmie obejmij też mały kod po prawej.")
                 .font(.system(.footnote, design: .serif))
                 .lineSpacing(2)
         }
@@ -112,7 +112,7 @@ struct ScannerStep: View {
                 .frame(height: 1)
         }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("Zeskanuj kod z tylnej okładki. Kod książki zaczyna się od 978 lub 979, a kod prasy od 977.")
+        .accessibilityLabel("Zeskanuj cały kod z tylnej okładki. Kod książki zaczyna się od 978 lub 979, a kod prasy od 977. Przy czasopiśmie obejmij też mały kod po prawej.")
         .accessibilityIdentifier("scanner.cameraInstruction")
     }
 
@@ -248,10 +248,10 @@ struct ScannerStep: View {
                 .tracking(1.55)
                 .foregroundStyle(LibraryPalette.mutedInk)
 
-            TextField("ISBN 978/979 lub kod prasy 977", text: $manualCode)
+            TextField("ISBN 978/979 lub 977 + mały kod", text: $manualCode)
                 .font(.body.monospacedDigit())
                 .foregroundStyle(LibraryPalette.ink)
-                .keyboardType(.numberPad)
+                .keyboardType(.numbersAndPunctuation)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
                 .submitLabel(.done)
@@ -269,7 +269,7 @@ struct ScannerStep: View {
                 }
                 .clipShape(RoundedRectangle(cornerRadius: LibraryRadius.small))
                 .accessibilityLabel("Kod z tylnej okładki")
-                .accessibilityHint("Wpisz 13-cyfrowy ISBN zaczynający się od 978 lub 979 albo kod prasy zaczynający się od 977.")
+                .accessibilityHint("Wpisz 13-cyfrowy ISBN zaczynający się od 978 lub 979 albo kod prasy 977. Po plusie możesz dopisać dwu- lub pięciocyfrowy mały kod.")
                 .accessibilityIdentifier("scanner.manualCode")
 
             if let validationMessage {
@@ -390,9 +390,11 @@ enum ScannerCodeValidator {
     static let checksumMessage = "Kod ma nieprawidłową cyfrę kontrolną. Sprawdź cyfry i spróbuj ponownie."
     static let unsupportedEANMessage = "To poprawny EAN, ale nie jest kodem książki ani prasy. Szukaj kodu zaczynającego się od 978, 979 lub 977."
     static let unsupportedQRMessage = "Ten kod QR nie zawiera poprawnego ISBN. Zeskanuj kod kreskowy z tylnej okładki."
+    static let supplementMessage = "Dodatek kodu prasy po znaku + musi mieć dokładnie 2 albo 5 cyfr."
 
     static func validate(
         _ rawValue: String,
+        supplementalPayload: String? = nil,
         source: ScannerCodeInputSource = .manual
     ) -> ScannerCodeValidation {
         let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -400,8 +402,21 @@ enum ScannerCodeValidator {
             return .rejected(emptyMessage)
         }
 
-        guard let candidate = normalizedCandidate(from: trimmed) else {
+        // A person entering the printed add-on explicitly should hear that it
+        // is incomplete instead of silently losing it. VisionKit payloads are
+        // handled separately and may still fall back to the valid main EAN.
+        if source == .manual, hasMalformedExplicitPeriodicalSupplement(trimmed) {
+            return .rejected(supplementMessage)
+        }
+
+        guard var candidate = normalizedCandidate(from: trimmed) else {
             return .rejected(source == .qr ? unsupportedQRMessage : formatMessage)
+        }
+
+        if let supplementalPayload,
+           let supplement = normalizedSupplement(supplementalPayload),
+           !candidate.contains("+") {
+            candidate += "+\(supplement)"
         }
 
         let parsed = PublicationIdentifierParser.parse(candidate)
@@ -421,7 +436,10 @@ enum ScannerCodeValidator {
         if parsed.kind == .ean13,
            parsed.normalized.hasPrefix("977"),
            parsed.issn != nil {
-            return .accepted(parsed.normalized)
+            let canonicalValue = parsed.eanSupplement
+                .map { "\(parsed.normalized)+\($0)" }
+                ?? parsed.normalized
+            return .accepted(canonicalValue)
         }
 
         return .rejected(unsupportedEANMessage)
@@ -443,18 +461,163 @@ enum ScannerCodeValidator {
             }
         }
 
-        let allowedSeparators = "-‐‑‒–—"
+        let allowedSeparators = "-‐‑‒–—+"
         guard candidate.allSatisfy({ character in
             character.isNumber || character.isWhitespace || allowedSeparators.contains(character)
         }) else {
             return nil
         }
 
+        let parts = candidate.split(separator: "+", omittingEmptySubsequences: false)
+        if parts.count == 2 {
+            let primary = parts[0].filter(\.isNumber)
+            guard primary.count == 13 else { return nil }
+
+            let supplement = parts[1].filter(\.isNumber)
+            if supplement.count == 2 || supplement.count == 5 {
+                return "\(primary)+\(supplement)"
+            }
+
+            // A damaged or partial add-on must not make a valid primary EAN
+            // unusable. The scanner can still catalogue the issue by its main
+            // 977 code and the user may complete the issue data later.
+            return String(primary)
+        }
+
+        guard parts.count == 1 else { return nil }
         let digits = candidate.filter(\.isNumber)
-        guard digits.count == 13 else {
+        if digits.count == 13 {
+            return String(digits)
+        }
+        if digits.count == 15 || digits.count == 18 {
+            return "\(digits.prefix(13))+\(digits.dropFirst(13))"
+        }
+        return nil
+    }
+
+    private static func hasMalformedExplicitPeriodicalSupplement(_ rawValue: String) -> Bool {
+        guard rawValue.contains("+") else { return false }
+        let parts = rawValue.split(separator: "+", omittingEmptySubsequences: false)
+        guard let primaryPart = parts.first else { return false }
+        let primary = primaryPart.filter(\.isNumber)
+        guard primary.count == 13, primary.hasPrefix("977") else { return false }
+        guard parts.count == 2 else { return true }
+        let supplement = parts[1].filter(\.isNumber)
+        return (supplement.count != 2 && supplement.count != 5) ||
+            !parts[1].allSatisfy { $0.isNumber || $0.isWhitespace }
+    }
+
+    private static func normalizedSupplement(_ value: String) -> String? {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.count == 2 || trimmed.count == 5,
+              trimmed.allSatisfy(\.isNumber) else {
             return nil
         }
-        return String(digits)
+        return trimmed
+    }
+}
+
+enum ScannerEANSupplementAction: Equatable {
+    case wait(until: Date)
+    case emit(String)
+    case ignore
+}
+
+/// Small deterministic state machine that gives VisionKit a short window to
+/// attach EAN-2/EAN-5 in `didUpdate`. Keeping it independent from the camera
+/// delegate makes the exactly-once behavior testable without VisionKit.
+struct ScannerEANSupplementAccumulator {
+    private enum State: Equatable {
+        case idle
+        case waiting(primaryEAN: String, deadline: Date)
+        case completed
+    }
+
+    private let waitInterval: TimeInterval
+    private var state: State = .idle
+
+    init(waitInterval: TimeInterval = 0.45) {
+        self.waitInterval = waitInterval
+    }
+
+    mutating func observe(
+        canonicalCode: String,
+        supplementalPayload: String?,
+        now: Date = .now
+    ) -> ScannerEANSupplementAction {
+        guard state != .completed else { return .ignore }
+
+        let parsed = PublicationIdentifierParser.parse(canonicalCode)
+        guard parsed.isValid,
+              parsed.kind == .ean13,
+              parsed.normalized.hasPrefix("977") else {
+            state = .completed
+            return .emit(canonicalCode)
+        }
+
+        let primaryEAN = parsed.normalized
+        let supplement = parsed.eanSupplement ?? Self.normalizedSupplement(supplementalPayload)
+        if let supplement {
+            state = .completed
+            return .emit("\(primaryEAN)+\(supplement)")
+        }
+
+        switch state {
+        case .idle:
+            let deadline = now.addingTimeInterval(waitInterval)
+            state = .waiting(primaryEAN: primaryEAN, deadline: deadline)
+            return .wait(until: deadline)
+        case .waiting(let pendingEAN, let deadline):
+            guard pendingEAN == primaryEAN else {
+                let replacementDeadline = now.addingTimeInterval(waitInterval)
+                state = .waiting(primaryEAN: primaryEAN, deadline: replacementDeadline)
+                return .wait(until: replacementDeadline)
+            }
+            return .wait(until: deadline)
+        case .completed:
+            return .ignore
+        }
+    }
+
+    mutating func resolveTimeout(now: Date = .now) -> ScannerEANSupplementAction {
+        guard case .waiting(let primaryEAN, let deadline) = state else {
+            return .ignore
+        }
+        guard now >= deadline else {
+            return .wait(until: deadline)
+        }
+
+        state = .completed
+        return .emit(primaryEAN)
+    }
+
+    mutating func reset() {
+        state = .idle
+    }
+
+    /// Cancels a pending 977 when it is no longer visible. A transient item
+    /// must never be emitted after the camera has already moved to another code.
+    @discardableResult
+    mutating func cancelIfPendingCodeIsNotVisible(_ canonicalCodes: [String]) -> Bool {
+        guard case .waiting(let primaryEAN, _) = state else { return false }
+        let visiblePrimaryEANs = canonicalCodes.compactMap { code -> String? in
+            let parsed = PublicationIdentifierParser.parse(code)
+            guard parsed.isValid, parsed.kind == .ean13 else { return nil }
+            return parsed.normalized
+        }
+        guard !visiblePrimaryEANs.contains(primaryEAN) else { return false }
+        state = .idle
+        return true
+    }
+
+    private static func normalizedSupplement(_ value: String?) -> String? {
+        guard let value else { return nil }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.count == 2 || trimmed.count == 5,
+              trimmed.allSatisfy(\.isNumber) else {
+            return nil
+        }
+        return trimmed
     }
 }
 
@@ -500,6 +663,7 @@ private struct DataScannerRepresentable: UIViewControllerRepresentable {
     func updateUIViewController(_ uiViewController: DataScannerViewController, context: Context) {}
 
     static func dismantleUIViewController(_ uiViewController: DataScannerViewController, coordinator: Coordinator) {
+        coordinator.cancelPendingSupplement()
         uiViewController.stopScanning()
     }
 
@@ -510,6 +674,8 @@ private struct DataScannerRepresentable: UIViewControllerRepresentable {
         private let onUnavailable: () -> Void
         private var lastRejectedValue: String?
         private var repeatGate: ScannerRepeatGate
+        private var supplementAccumulator = ScannerEANSupplementAccumulator()
+        private var supplementTimeoutTask: Task<Void, Never>?
 
         init(
             initiallySuppressedCode: String?,
@@ -528,29 +694,15 @@ private struct DataScannerRepresentable: UIViewControllerRepresentable {
             didAdd addedItems: [RecognizedItem],
             allItems: [RecognizedItem]
         ) {
-            for item in addedItems {
-                guard case .barcode(let barcode) = item,
-                      let value = barcode.payloadStringValue?.trimmingCharacters(in: .whitespacesAndNewlines),
-                      !value.isEmpty else {
-                    continue
-                }
+            process(addedItems, with: dataScanner)
+        }
 
-                let inputSource: ScannerCodeInputSource = barcode.observation.symbology == .qr
-                    ? .qr
-                    : .ean13
-                switch ScannerCodeValidator.validate(value, source: inputSource) {
-                case .accepted(let normalizedValue):
-                    guard repeatGate.shouldAccept(normalizedValue) else { continue }
-                    dataScanner.stopScanning()
-                    UINotificationFeedbackGenerator().notificationOccurred(.success)
-                    onRecognized(normalizedValue)
-                    return
-                case .rejected(let message):
-                    guard lastRejectedValue != value else { continue }
-                    lastRejectedValue = value
-                    onRejected(message)
-                }
-            }
+        func dataScanner(
+            _ dataScanner: DataScannerViewController,
+            didUpdate updatedItems: [RecognizedItem],
+            allItems: [RecognizedItem]
+        ) {
+            process(updatedItems, with: dataScanner)
         }
 
         func dataScanner(
@@ -560,6 +712,9 @@ private struct DataScannerRepresentable: UIViewControllerRepresentable {
         ) {
             let visibleCodes = allItems.compactMap(Self.normalizedPublicationCode)
             repeatGate.updateVisibleCodes(visibleCodes)
+            if supplementAccumulator.cancelIfPendingCodeIsNotVisible(visibleCodes) {
+                cancelPendingSupplement()
+            }
         }
 
         func dataScanner(
@@ -570,7 +725,99 @@ private struct DataScannerRepresentable: UIViewControllerRepresentable {
         }
 
         func reportUnavailable() {
+            cancelPendingSupplement()
             onUnavailable()
+        }
+
+        func cancelPendingSupplement() {
+            supplementTimeoutTask?.cancel()
+            supplementTimeoutTask = nil
+        }
+
+        private func process(
+            _ items: [RecognizedItem],
+            with dataScanner: DataScannerViewController
+        ) {
+            for item in items {
+                guard case .barcode(let barcode) = item,
+                      let value = barcode.payloadStringValue?.trimmingCharacters(in: .whitespacesAndNewlines),
+                      !value.isEmpty else {
+                    continue
+                }
+
+                let inputSource: ScannerCodeInputSource = barcode.observation.symbology == .qr
+                    ? .qr
+                    : .ean13
+                let supplementalPayload = inputSource == .ean13
+                    ? barcode.observation.supplementalPayloadString
+                    : nil
+
+                switch ScannerCodeValidator.validate(
+                    value,
+                    supplementalPayload: supplementalPayload,
+                    source: inputSource
+                ) {
+                case .accepted(let canonicalValue):
+                    lastRejectedValue = nil
+                    let action = inputSource == .ean13
+                        ? supplementAccumulator.observe(
+                            canonicalCode: canonicalValue,
+                            supplementalPayload: supplementalPayload
+                        )
+                        : .emit(canonicalValue)
+                    if handle(action, with: dataScanner) {
+                        return
+                    }
+                case .rejected(let message):
+                    let rejectionKey = "\(value)|\(supplementalPayload ?? "")"
+                    guard lastRejectedValue != rejectionKey else { continue }
+                    lastRejectedValue = rejectionKey
+                    onRejected(message)
+                }
+            }
+        }
+
+        @discardableResult
+        private func handle(
+            _ action: ScannerEANSupplementAction,
+            with dataScanner: DataScannerViewController
+        ) -> Bool {
+            switch action {
+            case .wait(let deadline):
+                scheduleSupplementTimeout(at: deadline, with: dataScanner)
+                return false
+            case .emit(let canonicalValue):
+                cancelPendingSupplement()
+                guard repeatGate.shouldAccept(canonicalValue) else {
+                    supplementAccumulator.reset()
+                    return false
+                }
+                dataScanner.stopScanning()
+                UINotificationFeedbackGenerator().notificationOccurred(.success)
+                onRecognized(canonicalValue)
+                return true
+            case .ignore:
+                return false
+            }
+        }
+
+        private func scheduleSupplementTimeout(
+            at deadline: Date,
+            with dataScanner: DataScannerViewController
+        ) {
+            supplementTimeoutTask?.cancel()
+            let delay = max(0, deadline.timeIntervalSinceNow)
+            let nanoseconds = UInt64(delay * 1_000_000_000)
+            supplementTimeoutTask = Task { @MainActor [weak self, weak dataScanner] in
+                do {
+                    try await Task.sleep(nanoseconds: nanoseconds)
+                } catch {
+                    return
+                }
+                guard let self, let dataScanner else { return }
+                let action = self.supplementAccumulator.resolveTimeout()
+                self.handle(action, with: dataScanner)
+            }
         }
 
         private static func normalizedPublicationCode(from item: RecognizedItem) -> String? {
@@ -585,6 +832,9 @@ private struct DataScannerRepresentable: UIViewControllerRepresentable {
                 : .ean13
             guard case .accepted(let normalizedValue) = ScannerCodeValidator.validate(
                 value,
+                supplementalPayload: inputSource == .ean13
+                    ? barcode.observation.supplementalPayloadString
+                    : nil,
                 source: inputSource
             ) else {
                 return nil
@@ -609,7 +859,8 @@ struct ScannerRepeatGate {
     }
 
     mutating func shouldAccept(_ code: String, now: Date = .now) -> Bool {
-        guard let suppressedCode, code == suppressedCode else {
+        guard let suppressedCode,
+              Self.representsSameVisiblePeriodicalCode(code, suppressedCode) else {
             return true
         }
 
@@ -625,9 +876,41 @@ struct ScannerRepeatGate {
     mutating func updateVisibleCodes(_ codes: [String]) {
         guard hasObservedSuppressedCode,
               let suppressedCode,
-              !codes.contains(suppressedCode) else {
+              !codes.contains(where: {
+                  Self.representsSameVisiblePeriodicalCode($0, suppressedCode)
+              }) else {
             return
         }
         self.suppressedCode = nil
+    }
+
+    /// VisionKit may report the same printed EAN-977 first without an add-on
+    /// and then with it (or vice versa). During the short post-save grace
+    /// window these are one physical code. Two different non-empty add-ons
+    /// remain distinct so scanning the next issue is never blocked.
+    private static func representsSameVisiblePeriodicalCode(
+        _ left: String,
+        _ right: String
+    ) -> Bool {
+        if left == right { return true }
+
+        let leftParsed = PublicationIdentifierParser.parse(left)
+        let rightParsed = PublicationIdentifierParser.parse(right)
+        guard leftParsed.isValid,
+              rightParsed.isValid,
+              leftParsed.kind == .ean13,
+              rightParsed.kind == .ean13,
+              leftParsed.normalized.hasPrefix("977"),
+              rightParsed.normalized.hasPrefix("977"),
+              leftParsed.normalized == rightParsed.normalized else {
+            return false
+        }
+
+        switch (leftParsed.eanSupplement, rightParsed.eanSupplement) {
+        case let (.some(leftSupplement), .some(rightSupplement)):
+            return leftSupplement == rightSupplement
+        default:
+            return true
+        }
     }
 }

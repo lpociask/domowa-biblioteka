@@ -93,7 +93,8 @@
           "type": ["string", "null"]
         },
         "barcode": {
-          "type": ["string", "null"]
+          "type": ["string", "null"],
+          "$comment": "Surowy kod lub postać kanoniczna EAN-977 z dodatkiem EAN-2/EAN-5: 13 cyfr, znak + i 2 albo 5 cyfr, np. 9770033248007+05."
         }
       },
       "additionalProperties": true

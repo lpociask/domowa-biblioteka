@@ -38,14 +38,17 @@ Open Library pozostaje eksperymentalnym źródłem low-volume. Odpowiedzi katalo
 
 ## Etap 2 — prasa
 
-- rozdzielenie `Serial → SerialManifestation → Issue → OwnedItem`;
+- [x] odwracalna projekcja `Seria → Numer → Egzemplarz` bez migracji głównej bazy;
+- [ ] pełne rozdzielenie `Serial → SerialManifestation → Issue → OwnedItem` dopiero, jeśli pilot pokaże potrzebę aliasów i wielu manifestacji;
 - [x] parser kodu 977: walidacja EAN‑13, automatyczny typ prasa i wyprowadzenie bazowego ISSN;
-- test odczytu dodatków EAN‑2/EAN‑5 na fizycznej próbce;
-- OCR daty, numeru i tomu z okładki;
-- szybki tryb dodawania kolejnych numerów jednego tytułu;
-- widok brakujących i zdublowanych numerów.
+- [x] zachowanie dodatków EAN‑2/EAN‑5, ręczny fallback i best-effort odczyt przez VisionKit;
+- [ ] test skuteczności dodatków EAN‑2/EAN‑5 na fizycznych próbkach;
+- [x] lokalny OCR daty, numeru i tomu z okładki z jawnym potwierdzeniem każdej propozycji;
+- [ ] szybki tryb dodawania kolejnych numerów jednego tytułu;
+- [x] analizator luk, wielu kopii i powtórzonych rekordów numerów;
+- [x] pełny widok serii prasy na iOS i WWW;
 
-Kod 977 identyfikuje tytuł/manifestację seryjną, nie konkretny numer. Dwie cyfry wariantu w głównym EAN‑13 nie są numerem wydania; dopóki skaner nie obsługuje osobnego dodatku EAN‑2/EAN‑5 lub OCR okładki, numer i data pozostają polami ręcznymi.
+Kod 977 identyfikuje tytuł/manifestację seryjną, nie konkretny numer. Dwie cyfry wariantu w głównym EAN‑13 nie są numerem wydania. Aplikacja potrafi zachować osobny dodatek EAN‑2/EAN‑5 i pokazuje go do potwierdzenia, ale jego znaczenie zależy od wydawcy. Automatyczny odczyt systemowy jest best-effort; ręczne wpisanie oraz lokalny OCR okładki pozostają koniecznym fallbackiem. Zdjęcie używane przez OCR nie jest zapisywane ani wysyłane; użytkownik zatwierdza wybrane propozycje, a istniejące pola nie są nadpisywane.
 
 ## Etap 3 — prywatna synchronizacja
 

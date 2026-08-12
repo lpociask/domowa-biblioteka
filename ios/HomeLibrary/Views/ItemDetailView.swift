@@ -180,7 +180,12 @@ struct ItemDetailView: View {
                 if let ean = clean(publication.ean) {
                     EditorialMetadataRow(label: "EAN", value: ean, monospaced: true)
                 }
-                if let barcode = clean(publication.barcode), barcode != clean(publication.ean) {
+                if let supplement = eanSupplement(for: publication) {
+                    EditorialMetadataRow(label: "Dodatek EAN", value: supplement, monospaced: true)
+                }
+                if let barcode = clean(publication.barcode),
+                   barcode != clean(publication.ean),
+                   eanSupplement(for: publication) == nil {
                     EditorialMetadataRow(label: "Kod źródłowy", value: barcode, monospaced: true)
                 }
             }
@@ -287,6 +292,11 @@ struct ItemDetailView: View {
             || clean(publication.issn) != nil
             || clean(publication.ean) != nil
             || clean(publication.barcode) != nil
+    }
+
+    private func eanSupplement(for publication: Publication) -> String? {
+        guard publication.publicationType == .periodical else { return nil }
+        return PublicationIdentifierParser.parse(publication.barcode).eanSupplement
     }
 
     private func metadataSourceLabel(_ source: String) -> String? {

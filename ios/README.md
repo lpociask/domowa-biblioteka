@@ -5,7 +5,7 @@ Natywny vertical slice dla iOS 17+, bez zewnętrznych zależności. Dane są prz
 ## Zakres MVP
 
 - ręczne dodawanie książek i konkretnych numerów prasy,
-- skanowanie publikacyjnych EAN-13: ISBN 978/979 i kodów prasy 977 przez VisionKit,
+- skanowanie publikacyjnych EAN-13: ISBN 978/979 i kodów prasy 977 przez VisionKit, z best-effort odczytem dodatków EAN‑2/EAN‑5,
 - QR jest akceptowany tylko wtedy, gdy cała jego treść jest poprawnym ISBN; pozostałe kody nie zamykają skanera i dostają czytelny komunikat,
 - ręczny fallback skanera (działa również na symulatorze),
 - lista, wyszukiwanie, szczegóły i usuwanie egzemplarzy,
@@ -14,12 +14,17 @@ Natywny vertical slice dla iOS 17+, bez zewnętrznych zależności. Dane są prz
 - import i eksport wspólnego formatu JSON v1 używanego przez stronę WWW,
 - uzupełnianie książki po ISBN w kaskadzie Biblioteka Narodowa → Open Library,
 - okładki Open Library oraz trwałe, odbudowywalne cache metadanych i obrazów.
+- lokalny OCR okładki prasy oraz read-only analiza serii, luk, wielu kopii i powtórzonych rekordów.
 
 ## Kody prasy 977
 
 Po zeskanowaniu prawidłowego EAN‑13 z prefiksem `977` formularz automatycznie wybiera typ `Prasa`, zapisuje EAN i wyprowadza bazowy ISSN wraz z jego cyfrą kontrolną. Taki kod nie uruchamia katalogów książkowych BN/Open Library.
 
-Główny kod 977 nie wystarcza do pewnego rozpoznania konkretnego numeru czasopisma. Dwie cyfry po bazie ISSN są wariantem wydawcy, a właściwy numer bywa zapisany w osobnym dodatku EAN‑2/EAN‑5 albo tylko na okładce. Bieżący skaner nie odczytuje dodatku, dlatego numer, tom i data pozostają do potwierdzenia ręcznego.
+Główny kod 977 nie wystarcza do pewnego rozpoznania konkretnego numeru czasopisma. Dwie cyfry po bazie ISSN są wariantem wydawcy, a właściwy numer bywa zapisany w osobnym dodatku EAN‑2/EAN‑5 albo tylko na okładce.
+
+Skaner czeka krótko na dodatek zgłoszony przez VisionKit i zachowuje pełny kod jako `EAN13+EAN2` lub `EAN13+EAN5`. Ponieważ systemowy odczyt zależy od urządzenia, druku i kadru, formularz ma także jawne pole ręczne. Aplikacja nie zakłada, że wartość dodatku zawsze jest numerem wydania: pokazuje ją osobno i pozwala skopiować do pola numeru dopiero po świadomym potwierdzeniu z okładką. Dwa różne niepuste dodatki nie są traktowane jako ten sam numer, a przy tym samym dodatku użytkownik może wymusić osobny numer, gdy okładka wskazuje inne wydanie lub datę.
+
+Formularz prasy pozwala też zrobić lub wybrać zdjęcie przedniej okładki. Vision rozpoznaje tekst lokalnie po polsku, angielsku i niemiecku, a parser proponuje numer, tom i datę. Użytkownik wybiera, które wartości zastosować; już wypełnione pola nie są nadpisywane. Zdjęcie nie trafia do bazy, cache ani sieci i znika po zakończeniu zadania OCR.
 
 ## Lookup metadanych
 

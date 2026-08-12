@@ -27,6 +27,7 @@ struct CatalogingSaveRequest {
     let locationPathText: String
     let notes: String
     let savedAt: Date
+    let forceNewPublication: Bool
 
     init(
         type: PublicationType,
@@ -48,7 +49,8 @@ struct CatalogingSaveRequest {
         coverSource: String = "",
         locationPathText: String = "",
         notes: String = "",
-        savedAt: Date = .now
+        savedAt: Date = .now,
+        forceNewPublication: Bool = false
     ) {
         self.type = type
         self.title = title
@@ -70,6 +72,7 @@ struct CatalogingSaveRequest {
         self.locationPathText = locationPathText
         self.notes = notes
         self.savedAt = savedAt
+        self.forceNewPublication = forceNewPublication
     }
 }
 
@@ -96,25 +99,74 @@ struct CatalogingService {
     func save(_ request: CatalogingSaveRequest) throws -> CatalogingSaveResult {
         let locationPath = LocationPath(request.locationPathText)
         let existingItems = try modelContext.fetch(FetchDescriptor<OwnedItem>())
-        let match = ExistingPublicationMatcher.match(
-            in: existingItems,
-            type: request.type,
-            isbn13: request.isbn13,
-            issn: request.issn,
-            ean: request.ean,
-            issueNumber: request.issueNumber,
-            issueDate: request.issueDate,
-            locationPath: locationPath
-        )
+        let match = request.forceNewPublication
+            ? nil
+            : ExistingPublicationMatcher.match(
+                in: existingItems,
+                type: request.type,
+                isbn13: request.isbn13,
+                issn: request.issn,
+                ean: request.ean,
+                barcode: request.barcode,
+                issueNumber: request.issueNumber,
+                issueDate: request.issueDate,
+                locationPath: locationPath
+            )
 
         let publication: Publication
 
         if let match {
             publication = match.publication
+            var updatedSharedDescription = false
+
+            // When a later scan adds the previously missing EAN-2/EAN-5,
+            // retain that stronger raw observation on the shared issue record.
+            // The matcher has already rejected conflicting explicit main EANs.
+            if request.type == .periodical,
+               PeriodicalCompositeIdentifier(
+                   ean: publication.ean,
+                   barcode: publication.barcode
+               ) == nil,
+               let incomingComposite = PeriodicalCompositeIdentifier(
+                   ean: request.ean,
+                   barcode: request.barcode
+               ) {
+                publication.ean = incomingComposite.ean13
+                publication.barcode = incomingComposite.canonical
+                updatedSharedDescription = true
+            }
+
+            if request.type == .periodical {
+                if publication.issueNumber.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    let value = request.issueNumber.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !value.isEmpty {
+                        publication.issueNumber = value
+                        updatedSharedDescription = true
+                    }
+                }
+                if publication.issueVolume.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    let value = request.issueVolume.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !value.isEmpty {
+                        publication.issueVolume = value
+                        updatedSharedDescription = true
+                    }
+                }
+                if publication.issueDate.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    let value = request.issueDate.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !value.isEmpty {
+                        publication.issueDate = value
+                        updatedSharedDescription = true
+                    }
+                }
+            }
+
             if publication.coverURLString.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
                !request.coverURLString.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 publication.coverURLString = request.coverURLString
                 publication.coverSource = request.coverSource
+                updatedSharedDescription = true
+            }
+            if updatedSharedDescription {
                 publication.updatedAt = request.savedAt
             }
         } else {

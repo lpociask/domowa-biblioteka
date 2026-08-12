@@ -19,6 +19,7 @@ enum ExistingPublicationMatcher {
         isbn13: String,
         issn: String,
         ean: String,
+        barcode: String = "",
         issueNumber: String,
         issueDate: String,
         locationPath: LocationPath = LocationPath()
@@ -38,22 +39,41 @@ enum ExistingPublicationMatcher {
             }
 
         case .periodical:
+            let requestedComposite = PeriodicalCompositeIdentifier(
+                ean: ean,
+                barcode: barcode
+            )
+            let requestedMainEAN = normalizedPeriodicalEAN(ean: ean, barcode: barcode)
             let requestedISSN = normalizedISSN(issn)
             let requestedIssue = issueNumber.trimmed
             let requestedDate = issueDate.trimmed
 
             // Sam ISSN (tak samo jak bazowy EAN-977) identyfikuje tytuł ciągły,
-            // a nie konkretny numer. Do bezpiecznego scalenia potrzebujemy numeru
-            // albo daty wydania.
-            guard !requestedISSN.isEmpty,
-                  !requestedIssue.isEmpty || !requestedDate.isEmpty else {
+            // a nie konkretny numer. Konkretny numer rozpoznajemy po pełnym
+            // EAN-977 z dodatkiem EAN-2/EAN-5 albo po zgodnym numerze/dacie.
+            let canUseBibliographicFallback = !requestedISSN.isEmpty &&
+                (!requestedIssue.isEmpty || !requestedDate.isEmpty)
+            guard requestedComposite != nil || canUseBibliographicFallback else {
                 return nil
             }
 
             matchingItems = items.filter { item in
                 guard let publication = item.publication else { return false }
-                guard publication.publicationType == .periodical,
-                      normalizedISSN(publication.issn) == requestedISSN else {
+                guard publication.publicationType == .periodical else {
+                    return false
+                }
+
+                let existingComposite = PeriodicalCompositeIdentifier(
+                    ean: publication.ean,
+                    barcode: publication.barcode
+                )
+                let existingMainEAN = normalizedPeriodicalEAN(
+                    ean: publication.ean,
+                    barcode: publication.barcode
+                )
+                if let requestedMainEAN,
+                   let existingMainEAN,
+                   requestedMainEAN != existingMainEAN {
                     return false
                 }
 
@@ -64,10 +84,29 @@ enum ExistingPublicationMatcher {
                 let dateMatches = !requestedDate.isEmpty && !existingDate.isEmpty &&
                     existingDate.caseInsensitiveCompare(requestedDate) == .orderedSame
 
+                // The add-on is a useful candidate signal, not permission to
+                // erase explicit bibliographic disagreement. Publishers may
+                // reuse EAN-2 values in another cycle.
                 if !requestedIssue.isEmpty, !existingIssue.isEmpty, !issueMatches {
                     return false
                 }
                 if !requestedDate.isEmpty, !existingDate.isEmpty, !dateMatches {
+                    return false
+                }
+
+                if let requestedComposite, let existingComposite {
+                    // Dwa jawne, różne dodatki zawsze opisują różne numery,
+                    // nawet gdy ręcznie wpisany numer albo data są takie same.
+                    guard requestedComposite.supplement == existingComposite.supplement else {
+                        return false
+                    }
+                    if requestedComposite == existingComposite {
+                        return true
+                    }
+                }
+
+                guard canUseBibliographicFallback,
+                      normalizedISSN(publication.issn) == requestedISSN else {
                     return false
                 }
 
@@ -114,6 +153,59 @@ enum ExistingPublicationMatcher {
 
     private static func normalizedISSN(_ value: String) -> String {
         value.uppercased().filter { $0.isNumber || $0 == "X" }
+    }
+
+    private static func normalizedPeriodicalEAN(ean: String, barcode: String) -> String? {
+        for value in [ean, barcode] {
+            let parsed = PublicationIdentifierParser.parse(value)
+            let main = String(parsed.normalized.prefix(13))
+            if parsed.isValid,
+               parsed.kind == .ean13,
+               main.hasPrefix("977"),
+               PublicationIdentifierParser.isValidEAN13(main) {
+                return main
+            }
+        }
+        return nil
+    }
+}
+
+/// Concrete issue identity encoded by a valid EAN-977 and its 2- or 5-digit
+/// add-on. It is derived from the existing `ean` and `barcode` fields, so the
+/// persistence and exchange formats do not need another stored property.
+struct PeriodicalCompositeIdentifier: Equatable {
+    let ean13: String
+    let supplement: String
+
+    var canonical: String { "\(ean13)+\(supplement)" }
+
+    init?(ean: String, barcode: String) {
+        let parsedBarcode = PublicationIdentifierParser.parse(barcode)
+        guard parsedBarcode.isValid,
+              let supplement = parsedBarcode.eanSupplement,
+              (supplement.count == 2 || supplement.count == 5),
+              supplement.allSatisfy(\.isNumber) else {
+            return nil
+        }
+
+        let barcodeEAN = String(parsedBarcode.normalized.prefix(13))
+        guard barcodeEAN.count == 13,
+              barcodeEAN.hasPrefix("977"),
+              PublicationIdentifierParser.isValidEAN13(barcodeEAN) else {
+            return nil
+        }
+
+        if !ean.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            let parsedEAN = PublicationIdentifierParser.parse(ean)
+            let explicitEAN = String(parsedEAN.normalized.prefix(13))
+            guard parsedEAN.isValid,
+                  explicitEAN == barcodeEAN else {
+                return nil
+            }
+        }
+
+        self.ean13 = barcodeEAN
+        self.supplement = supplement
     }
 }
 

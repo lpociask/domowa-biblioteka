@@ -27,6 +27,7 @@ Testy korzystają wyłącznie z modułów wbudowanych w Node.js.
 - Kanoniczny v1 wymaga poprawnych dat ISO 8601 i całkowitego roku 1–9999. Podczas scalania te same hierarchiczne lokalizacje są deduplikowane także wtedy, gdy pochodzą z różnych klientów i mają inne ID.
 - Import pliku jest ograniczony do 25 MB, tak samo jak w aplikacji iOS.
 - Bieżąca kolekcja jest przechowywana w `localStorage` pod kluczem `polka.collection.v1`.
+- Zakładka „Serie prasy” jest projekcją tylko do odczytu: grupuje numery, pokazuje wewnętrzne luki oraz rozdziela wiele fizycznych kopii od powtórzonych rekordów publikacji. Wynik nie trafia do JSON-u ani `localStorage`.
 - GitHub Pages serwuje wyłącznie pliki statyczne. Nie wysyła kolekcji do repozytorium i nie synchronizuje jej automatycznie z iPhone’em. W MVP wspólny plik JSON można eksportować i importować w obie strony między aplikacją iOS a WWW oraz przenosić między przeglądarkami.
 - Otwarcie katalogu i przewijanie listy nie pobiera zewnętrznych okładek. Po świadomym otwarciu szczegółów aplikacja może pobrać wyłącznie obraz HTTPS z `covers.openlibrary.org`; nieznane hosty zachowuje w JSON-ie, ale ich automatycznie nie wywołuje.
 

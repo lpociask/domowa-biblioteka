@@ -91,6 +91,142 @@ final class CatalogingServiceTests: XCTestCase {
         XCTAssertEqual(try context.fetchCount(FetchDescriptor<OwnedItem>()), 2)
     }
 
+    func testExactPeriodicalCompositeBarcodeReusesPublicationWithoutIssueFields() throws {
+        let context = try makeContext()
+        let service = CatalogingService(modelContext: context)
+        let request = periodicalRequest(
+            issueNumber: "",
+            issueDate: "",
+            barcode: "9770033248007+05"
+        )
+
+        let first = try service.save(request)
+        let second = try service.save(request)
+
+        XCTAssertFalse(first.usedExisting)
+        XCTAssertTrue(second.usedExisting)
+        XCTAssertEqual(first.publication.id, second.publication.id)
+        XCTAssertEqual(second.copyCount, 2)
+        XCTAssertEqual(try context.fetchCount(FetchDescriptor<Publication>()), 1)
+        XCTAssertEqual(try context.fetchCount(FetchDescriptor<OwnedItem>()), 2)
+    }
+
+    func testForceNewPeriodicalIssueDoesNotReuseExactCompositeCandidate() throws {
+        let context = try makeContext()
+        let service = CatalogingService(modelContext: context)
+        let first = periodicalRequest(
+            issueNumber: "",
+            issueDate: "",
+            barcode: "9770033248007+05"
+        )
+        _ = try service.save(first)
+
+        let second = try service.save(CatalogingSaveRequest(
+            type: .periodical,
+            title: "Miesięcznik — inny numer",
+            issn: "0033-248X",
+            ean: "9770033248007",
+            barcode: "9770033248007+05",
+            issueNumber: "5/2026",
+            savedAt: Date(timeIntervalSince1970: 2),
+            forceNewPublication: true
+        ))
+
+        XCTAssertFalse(second.usedExisting)
+        XCTAssertEqual(try context.fetchCount(FetchDescriptor<Publication>()), 2)
+        XCTAssertEqual(try context.fetchCount(FetchDescriptor<OwnedItem>()), 2)
+    }
+
+    func testDifferentPeriodicalSupplementsCreateSeparatePublications() throws {
+        let context = try makeContext()
+        let service = CatalogingService(modelContext: context)
+
+        let first = try service.save(periodicalRequest(
+            issueNumber: "8/2026",
+            issueDate: "2026-08",
+            barcode: "9770033248007+05"
+        ))
+        let second = try service.save(periodicalRequest(
+            issueNumber: "8/2026",
+            issueDate: "2026-08",
+            barcode: "9770033248007+06"
+        ))
+
+        XCTAssertFalse(first.usedExisting)
+        XCTAssertFalse(second.usedExisting)
+        XCTAssertNotEqual(first.publication.id, second.publication.id)
+        XCTAssertEqual(try context.fetchCount(FetchDescriptor<Publication>()), 2)
+        XCTAssertEqual(try context.fetchCount(FetchDescriptor<OwnedItem>()), 2)
+    }
+
+    func testBasePeriodicalEANWithoutSupplementDoesNotReusePublicationByItself() throws {
+        let context = try makeContext()
+        let service = CatalogingService(modelContext: context)
+        let request = periodicalRequest(
+            issueNumber: "",
+            issueDate: "",
+            barcode: "9770033248007"
+        )
+
+        let first = try service.save(request)
+        let second = try service.save(request)
+
+        XCTAssertFalse(first.usedExisting)
+        XCTAssertFalse(second.usedExisting)
+        XCTAssertNotEqual(first.publication.id, second.publication.id)
+        XCTAssertEqual(try context.fetchCount(FetchDescriptor<Publication>()), 2)
+    }
+
+    func testFallbackMatchPersistsNewlyObservedSupplement() throws {
+        let context = try makeContext()
+        let service = CatalogingService(modelContext: context)
+
+        let first = try service.save(periodicalRequest(
+            issueNumber: "8/2026",
+            issueDate: "2026-08",
+            barcode: "9770033248007"
+        ))
+        let second = try service.save(periodicalRequest(
+            issueNumber: "8/2026",
+            issueDate: "2026-08",
+            barcode: "9770033248007+12345"
+        ))
+
+        XCTAssertTrue(second.usedExisting)
+        XCTAssertEqual(first.publication.id, second.publication.id)
+        XCTAssertEqual(second.publication.ean, "9770033248007")
+        XCTAssertEqual(second.publication.barcode, "9770033248007+12345")
+        XCTAssertEqual(try context.fetchCount(FetchDescriptor<Publication>()), 1)
+    }
+
+    func testPeriodicalReuseFillsOnlyMissingIssueFields() throws {
+        let context = try makeContext()
+        let existing = Publication(
+            type: .periodical,
+            title: "Miesięcznik",
+            issn: "0033-248X",
+            ean: "9770033248007",
+            barcode: "9770033248007",
+            issueNumber: "8/2026",
+            issueVolume: "",
+            issueDate: ""
+        )
+        context.insert(existing)
+        context.insert(OwnedItem(publication: existing, locationPathText: "Archiwum"))
+        try context.save()
+
+        let result = try CatalogingService(modelContext: context).save(periodicalRequest(
+            issueNumber: "8/2026",
+            issueDate: "2026-08",
+            barcode: "9770033248007+05"
+        ))
+
+        XCTAssertTrue(result.usedExisting)
+        XCTAssertEqual(result.publication.issueNumber, "8/2026")
+        XCTAssertEqual(result.publication.issueDate, "2026-08")
+        XCTAssertEqual(result.publication.barcode, "9770033248007+05")
+    }
+
     func testDuplicateFillsOnlyMissingCoverAndNeverOverwritesAcceptedReference() throws {
         let context = try makeContext()
         let publication = Publication(
@@ -203,13 +339,15 @@ final class CatalogingServiceTests: XCTestCase {
 
     private func periodicalRequest(
         issueNumber: String,
-        issueDate: String = "2026-08"
+        issueDate: String = "2026-08",
+        barcode: String = ""
     ) -> CatalogingSaveRequest {
         CatalogingSaveRequest(
             type: .periodical,
             title: "Przekrój",
             issn: "0033-248X",
             ean: "9770033248007",
+            barcode: barcode,
             issueNumber: issueNumber,
             issueDate: issueDate,
             locationPathText: "Salon / Stolik"

@@ -9,6 +9,7 @@ final class PublicationIdentifierParserTests: XCTestCase {
         XCTAssertTrue(parsed.isValid)
         XCTAssertEqual(parsed.normalized, "9780306406157")
         XCTAssertEqual(parsed.isbn13, "9780306406157")
+        XCTAssertNil(parsed.eanSupplement)
     }
 
     func testConvertsValidISBN10ToISBN13() {
@@ -44,6 +45,43 @@ final class PublicationIdentifierParserTests: XCTestCase {
         XCTAssertTrue(parsed.isValid)
         XCTAssertNil(parsed.isbn13)
         XCTAssertEqual(parsed.issn, "0033-2488")
+        XCTAssertNil(parsed.eanSupplement)
+    }
+
+    func testParsesCanonicalEAN2WithoutPuttingAddonInMainEAN() {
+        let parsed = PublicationIdentifierParser.parse("9770033248007+05")
+
+        XCTAssertEqual(parsed.kind, .ean13)
+        XCTAssertTrue(parsed.isValid)
+        XCTAssertEqual(parsed.normalized, "9770033248007")
+        XCTAssertEqual(parsed.issn, "0033-2488")
+        XCTAssertEqual(parsed.eanSupplement, "05")
+    }
+
+    func testCanonicalizesConcatenatedEAN5IntoSeparateSupplement() {
+        let parsed = PublicationIdentifierParser.parse("977003324800712345")
+
+        XCTAssertTrue(parsed.isValid)
+        XCTAssertEqual(parsed.normalized, "9770033248007")
+        XCTAssertEqual(parsed.eanSupplement, "12345")
+    }
+
+    func testInvalidSupplementDoesNotInvalidatePrimaryEAN() {
+        let parsed = PublicationIdentifierParser.parse("9770033248007+123")
+
+        XCTAssertTrue(parsed.isValid)
+        XCTAssertEqual(parsed.normalized, "9770033248007")
+        XCTAssertNil(parsed.eanSupplement)
+    }
+
+    func testIgnoresAddonForISBN() {
+        let parsed = PublicationIdentifierParser.parse("9780306406157+05")
+
+        XCTAssertEqual(parsed.kind, .isbn13)
+        XCTAssertTrue(parsed.isValid)
+        XCTAssertEqual(parsed.normalized, "9780306406157")
+        XCTAssertEqual(parsed.isbn13, "9780306406157")
+        XCTAssertNil(parsed.eanSupplement)
     }
 
     func testDerivesISSNWithXCheckDigit() {

@@ -43,6 +43,7 @@ struct ContentView: View {
     @AppStorage("collectionName") private var collectionName = "Moja biblioteka"
     @State private var searchText = ""
     @State private var navigationPath: [PersistentIdentifier] = []
+    @State private var showingPeriodicalOverview = false
     @State private var addItemRoute: AddItemRoute?
     @State private var editItemRoute: EditItemRoute?
     @State private var pendingDeletion: PendingDeletion?
@@ -60,6 +61,8 @@ struct ContentView: View {
             let publication = item.publication
             return [publication?.title, publication?.subtitle, publication?.authorsText,
                     publication?.isbn13, publication?.issn, publication?.ean,
+                    publication?.barcode, publication?.issueNumber,
+                    publication?.issueVolume, publication?.issueDate,
                     item.locationPathText, item.notes]
                 .compactMap { $0 }
                 .contains { $0.localizedCaseInsensitiveContains(query) }
@@ -88,6 +91,10 @@ struct ContentView: View {
         }).count
     }
 
+    private var hasPeriodicals: Bool {
+        items.contains { $0.publication?.publicationType == .periodical }
+    }
+
     private var shouldUseGrid: Bool {
         horizontalSizeClass == .regular && !dynamicTypeSize.isAccessibilitySize
     }
@@ -110,6 +117,9 @@ struct ContentView: View {
             .toolbarColorScheme(.light, for: .navigationBar)
             .navigationDestination(for: PersistentIdentifier.self) { persistentID in
                 itemDestination(persistentID)
+            }
+            .navigationDestination(isPresented: $showingPeriodicalOverview) {
+                PeriodicalOverviewView(items: items)
             }
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
@@ -211,6 +221,10 @@ struct ContentView: View {
         case "add-manual":
             if addItemRoute == nil {
                 addItemRoute = .manual
+            }
+        case "periodical-overview":
+            if !showingPeriodicalOverview, hasPeriodicals {
+                showingPeriodicalOverview = true
             }
         default:
             break
@@ -316,6 +330,17 @@ struct ContentView: View {
                     presentAddFlow(scanner: true)
                 }
                 .frame(maxWidth: 420, alignment: .leading)
+                if hasPeriodicals {
+                    EditorialActionRow(
+                        title: "Serie prasy",
+                        detail: "Przejrzyj zapisane numery, luki pomiędzy nimi oraz potencjalne duplikaty.",
+                        icon: "newspaper",
+                        accent: LibraryPalette.orangeText
+                    ) {
+                        showingPeriodicalOverview = true
+                    }
+                    .accessibilityIdentifier("collection.periodicalOverview")
+                }
                 EditorialSearchField(text: $searchText)
                 if filteredItems.isEmpty {
                     noSearchResults
@@ -567,7 +592,7 @@ private struct EditorialSearchField: View {
                 .foregroundStyle(LibraryPalette.orangeText)
                 .accessibilityHidden(true)
 
-            TextField("Tytuł, autor, kod lub lokalizacja", text: $text)
+            TextField("Tytuł, autor, numer, kod lub lokalizacja", text: $text)
                 .font(.body)
                 .foregroundStyle(LibraryPalette.ink)
                 .submitLabel(.search)

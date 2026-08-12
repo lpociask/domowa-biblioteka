@@ -69,12 +69,22 @@ Maszynowy kontrakt znajduje się w [`collection.schema.json`](collection.schema.
 - Identyfikatory rekordów są stabilnymi, niepustymi stringami i nie muszą być UUID. iOS zachowuje zewnętrzną wartość do ponownego eksportu; wewnętrznie zachowuje poprawny UUID albo deterministycznie mapuje tekst na namespaced UUID.
 - Daty używają ISO 8601.
 - `type` publikacji w v1 ma wartość `book` albo `periodical`.
-- `identifiers` może zawierać ISBN‑13, ISSN, EAN i surowy `barcode`; żaden z nich nie jest kluczem głównym egzemplarza. `barcode` zachowuje oryginalną treść (np. także myślniki lub URL z QR), podczas gdy identyfikatory bibliograficzne mogą być normalizowane do zwartej postaci.
+- `identifiers` może zawierać ISBN‑13, ISSN, EAN i surowy `barcode`; żaden z nich nie jest kluczem głównym egzemplarza. `barcode` zachowuje oryginalną treść (np. także myślniki lub URL z QR), podczas gdy identyfikatory bibliograficzne mogą być normalizowane do zwartej postaci. Dla prasy pełny kod z dodatkiem ma kanoniczną postać `EAN13+EAN2` albo `EAN13+EAN5`, np. `9770033248007+05`; pole `ean` nadal zawiera wyłącznie główne 13 cyfr.
 - `issue` jest opcjonalne i może zawierać `number`, `volume` oraz `date` dla konkretnego numeru prasy.
 - `locationPath` pozwala wyświetlić lokalizację bez dodatkowych zapytań. `locationId` może być pominięte w najwcześniejszych eksportach.
 - `metadata.source` opisuje pochodzenie danych. Aplikacja iOS zapisuje obecnie `manual`, `scan`, `bn` albo `openlibrary`; import zachowuje również inne niepuste wartości źródłowe.
 - `metadata.coverUrl` jest opcjonalną, przenośną referencją do okładki, a `metadata.coverSource` zapisuje jej pochodzenie niezależnie od źródła opisu bibliograficznego. Writer v1 zapisuje wyłącznie bezpieczny adres HTTPS bez danych logowania, po normalizacji mieszczący się w 2048 bajtach. Reader zachowuje zgodność ze starszymi plikami: nieważną lub niebezpieczną referencję oraz powiązane `coverSource` pomija, ale nie odrzuca całej publikacji ani kolekcji. Eksport nie zawiera lokalnej ścieżki ani bajtów obrazu.
 - Nieznane opcjonalne pola powinny być ignorowane, nie powodować odrzucenia całego importu.
+
+### Dodatki EAN‑2/EAN‑5 w prasie
+
+Dodatek jest częścią surowego kodu, a nie osobnym polem schematu v1. Dzięki temu starsze klienty zachowują zgodność, a iOS i WWW mogą odtworzyć pełny zapis bez migracji bazy. Poprawny pełny kod prasy spełnia wszystkie warunki:
+
+- główny EAN‑13 ma prefiks `977` i poprawną cyfrę kontrolną;
+- po znaku `+` występują dokładnie 2 albo 5 cyfr;
+- `identifiers.ean` przechowuje główny EAN‑13, a `identifiers.barcode` zapis `EAN13+dodatek`.
+
+Identyczny pełny kod jest kandydatem do wykrycia tego samego numeru, ale nie unieważnia jawnego konfliktu numeru lub daty — wydawca może ponownie użyć dodatku, zwłaszcza EAN‑2, w kolejnym cyklu. Interfejs zawsze pozwala oznaczyć skan jako osobny numer. Dwa różne niepuste dodatki nie są scalane. Sam EAN‑977 albo ISSN identyfikuje serię, nie numer. Znaczenie dodatku zależy od wydawcy, dlatego aplikacja nie kopiuje go automatycznie do `issue.number`; użytkownik potwierdza numer z okładką. Gdy po jednej stronie starszego rekordu brakuje dodatku, nadal można użyć zgodnego ISSN oraz jawnego numeru lub daty jako bezpiecznego fallbacku. Sprzeczne jawne główne EAN‑977 nigdy nie są scalane, a `ean` i główna część `barcode` muszą pozostać zgodne.
 
 ## Import w iOS
 

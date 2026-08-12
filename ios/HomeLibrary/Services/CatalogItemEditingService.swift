@@ -76,6 +76,8 @@ enum CatalogItemEditingError: Error, Equatable, LocalizedError {
     case invalidISBN
     case invalidISSN
     case invalidEAN
+    case invalidPeriodicalBarcode
+    case periodicalEANConflict
     case invalidCoverURL
     case publicationIdentityConflict(UUID)
 
@@ -99,6 +101,10 @@ enum CatalogItemEditingError: Error, Equatable, LocalizedError {
             "ISSN ma nieprawidłową długość lub cyfrę kontrolną."
         case .invalidEAN:
             "EAN-13 ma nieprawidłową cyfrę kontrolną."
+        case .invalidPeriodicalBarcode:
+            "Kod prasy z dodatkiem musi zawierać poprawny EAN-13 977 oraz dokładnie 2 albo 5 cyfr dodatku."
+        case .periodicalEANConflict:
+            "EAN i kod prasy wskazują różne główne kody EAN-13."
         case .invalidCoverURL:
             "Adres okładki musi być poprawnym adresem HTTPS."
         case .publicationIdentityConflict:
@@ -369,6 +375,8 @@ struct CatalogItemEditingService {
     ) throws -> PublicationEditDraft {
         var normalized = baseline
         normalized.type = draft.type
+        let eanWasEdited = draft.ean != baseline.ean
+        let barcodeWasEdited = draft.barcode != baseline.barcode
 
         if draft.title != baseline.title {
             normalized.title = clean(draft.title)
@@ -378,7 +386,6 @@ struct CatalogItemEditingService {
         if draft.authorsText != baseline.authorsText { normalized.authorsText = clean(draft.authorsText) }
         if draft.language != baseline.language { normalized.language = clean(draft.language) }
         if draft.publisher != baseline.publisher { normalized.publisher = clean(draft.publisher) }
-        if draft.barcode != baseline.barcode { normalized.barcode = clean(draft.barcode) }
         if draft.issueNumber != baseline.issueNumber { normalized.issueNumber = clean(draft.issueNumber) }
         if draft.issueVolume != baseline.issueVolume { normalized.issueVolume = clean(draft.issueVolume) }
         if draft.issueDate != baseline.issueDate { normalized.issueDate = clean(draft.issueDate) }
@@ -417,7 +424,7 @@ struct CatalogItemEditingService {
             }
         }
 
-        if draft.ean != baseline.ean {
+        if eanWasEdited {
             let ean = clean(draft.ean)
             if ean.isEmpty {
                 normalized.ean = ""
@@ -426,9 +433,20 @@ struct CatalogItemEditingService {
                 guard parsed.isValid, parsed.kind == .ean13 || parsed.kind == .isbn13 else {
                     throw CatalogItemEditingError.invalidEAN
                 }
+                guard parsed.eanSupplement == nil else {
+                    throw CatalogItemEditingError.invalidEAN
+                }
                 normalized.ean = parsed.normalized
             }
         }
+
+        try reconcilePeriodicalBarcode(
+            draftBarcode: draft.barcode,
+            baseline: baseline,
+            eanWasEdited: eanWasEdited,
+            barcodeWasEdited: barcodeWasEdited,
+            normalized: &normalized
+        )
 
         if draft.issn != baseline.issn {
             let issn = clean(draft.issn)
@@ -448,6 +466,88 @@ struct CatalogItemEditingService {
             normalized.coverSource = ""
         }
         return normalized
+    }
+
+    /// Keeps the existing exchange model coherent without introducing another
+    /// persisted field: `ean` stores the main EAN-13 and `barcode` stores the
+    /// canonical `main+addon` form when an EAN-2/EAN-5 is available.
+    private static func reconcilePeriodicalBarcode(
+        draftBarcode: String,
+        baseline: PublicationEditDraft,
+        eanWasEdited: Bool,
+        barcodeWasEdited: Bool,
+        normalized: inout PublicationEditDraft
+    ) throws {
+        guard eanWasEdited || barcodeWasEdited else { return }
+
+        let concernsPeriodical = baseline.type == .periodical || normalized.type == .periodical
+        guard concernsPeriodical else {
+            if barcodeWasEdited {
+                normalized.barcode = clean(draftBarcode)
+            }
+            return
+        }
+
+        if barcodeWasEdited {
+            let editedBarcode = clean(draftBarcode)
+            guard !editedBarcode.isEmpty else {
+                normalized.barcode = ""
+                return
+            }
+
+            if let barcode = canonicalPeriodicalBarcode(editedBarcode) {
+                if eanWasEdited,
+                   !normalized.ean.isEmpty,
+                   normalized.ean != barcode.ean13 {
+                    throw CatalogItemEditingError.periodicalEANConflict
+                }
+                normalized.ean = barcode.ean13
+                normalized.barcode = barcode.canonical
+                return
+            }
+
+            guard !looksLikePeriodicalComposite(editedBarcode) else {
+                throw CatalogItemEditingError.invalidPeriodicalBarcode
+            }
+            normalized.barcode = editedBarcode
+            return
+        }
+
+        // The user changed only EAN. A formerly coherent bare or composite
+        // barcode cannot stay attached to another main code, but unrelated
+        // historical raw barcode text remains untouched.
+        if let oldBarcode = canonicalPeriodicalBarcode(baseline.barcode),
+           oldBarcode.ean13 != normalized.ean {
+            normalized.barcode = ""
+        }
+    }
+
+    private static func canonicalPeriodicalBarcode(
+        _ value: String
+    ) -> (ean13: String, canonical: String)? {
+        let parsed = PublicationIdentifierParser.parse(value)
+        guard parsed.isValid,
+              parsed.kind == .ean13,
+              parsed.normalized.hasPrefix("977") else {
+            return nil
+        }
+
+        if looksLikePeriodicalComposite(value) {
+            guard let supplement = parsed.eanSupplement,
+                  supplement.count == 2 || supplement.count == 5,
+                  supplement.allSatisfy(\.isNumber) else {
+                return nil
+            }
+            return (parsed.normalized, "\(parsed.normalized)+\(supplement)")
+        }
+
+        return (parsed.normalized, parsed.normalized)
+    }
+
+    private static func looksLikePeriodicalComposite(_ value: String) -> Bool {
+        if value.contains("+") { return true }
+        let digits = value.filter(\.isNumber)
+        return digits.hasPrefix("977") && digits.count > 13
     }
 
     private static func normalizedISSN(_ value: String) -> String? {
@@ -478,6 +578,8 @@ struct CatalogItemEditingService {
             cleanIdentifier(baseline.isbn13) != cleanIdentifier(draft.isbn13) ||
             cleanIdentifier(baseline.issn) != cleanIdentifier(draft.issn) ||
             cleanIdentifier(baseline.ean) != cleanIdentifier(draft.ean) ||
+            ((baseline.type == .periodical || draft.type == .periodical) &&
+                cleanIdentifier(baseline.barcode) != cleanIdentifier(draft.barcode)) ||
             normalizedText(baseline.issueNumber) != normalizedText(draft.issueNumber) ||
             normalizedText(baseline.issueDate) != normalizedText(draft.issueDate)
     }
@@ -493,9 +595,28 @@ struct CatalogItemEditingService {
             let rightKeys = bookIdentityKeys(rhs)
             return !leftKeys.isDisjoint(with: rightKeys)
         case .periodical:
-            let leftEAN = cleanIdentifier(lhs.ean)
-            let rightEAN = cleanIdentifier(rhs.ean)
-            if !leftEAN.isEmpty, leftEAN == rightEAN { return true }
+            if let leftMainEAN = explicitPeriodicalMainEAN(lhs),
+               let rightMainEAN = explicitPeriodicalMainEAN(rhs),
+               leftMainEAN != rightMainEAN {
+                return false
+            }
+
+            let leftComposite = PeriodicalCompositeIdentifier(
+                ean: lhs.ean,
+                barcode: lhs.barcode
+            )
+            let rightComposite = PeriodicalCompositeIdentifier(
+                ean: rhs.ean,
+                barcode: rhs.barcode
+            )
+            if let leftComposite, let rightComposite {
+                // A different explicit EAN-2/EAN-5 always means a different
+                // issue, even if a manually entered issue number happens to match.
+                guard leftComposite.supplement == rightComposite.supplement else {
+                    return false
+                }
+                if leftComposite == rightComposite { return true }
+            }
 
             let leftISSN = cleanIdentifier(lhs.issn)
             let rightISSN = cleanIdentifier(rhs.issn)
@@ -511,6 +632,23 @@ struct CatalogItemEditingService {
             let conflictingDate = !leftDate.isEmpty && !rightDate.isEmpty && leftDate != rightDate
             return (matchingNumber && !conflictingDate) || (matchingDate && !conflictingNumber)
         }
+    }
+
+    private static func explicitPeriodicalMainEAN(
+        _ draft: PublicationEditDraft
+    ) -> String? {
+        let parsedEAN = PublicationIdentifierParser.parse(draft.ean)
+        if parsedEAN.isValid, parsedEAN.normalized.count == 13 {
+            return parsedEAN.normalized
+        }
+
+        let parsedBarcode = PublicationIdentifierParser.parse(draft.barcode)
+        guard parsedBarcode.isValid,
+              parsedBarcode.normalized.count == 13,
+              parsedBarcode.normalized.hasPrefix("977") else {
+            return nil
+        }
+        return parsedBarcode.normalized
     }
 
     private static func bookIdentityKeys(_ draft: PublicationEditDraft) -> Set<String> {

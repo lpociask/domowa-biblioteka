@@ -5,7 +5,8 @@ Pierwszy vertical slice prywatnego katalogu książek i prasy:
 - natywna aplikacja iOS do skanowania, ręcznego dodawania oraz lokalnego przechowywania kolekcji;
 - automatyczne uzupełnianie książek po ISBN: najpierw z Biblioteki Narodowej, a w razie braku wyniku z Open Library;
 - trwały cache metadanych i bezpieczne okładki Open Library działające także po utracie połączenia;
-- rozpoznawanie prasowego EAN‑13 z prefiksem `977`, automatyczne ustawienie typu prasa i wyprowadzenie bazowego ISSN;
+- rozpoznawanie prasowego EAN‑13 z prefiksem `977`, automatyczne ustawienie typu prasa, wyprowadzenie bazowego ISSN oraz zachowanie dodatków EAN‑2/EAN‑5;
+- lokalny OCR okładki prasy z jawnym potwierdzeniem numeru, tomu i daty oraz analiza serii, luk i duplikatów;
 - statyczny katalog WWW działający na GitHub Pages i przechowujący dane lokalnie w przeglądarce;
 - wspólny, wersjonowany format importu i eksportu JSON;
 - świadome rozdzielenie publikacji od posiadanego egzemplarza.
@@ -73,9 +74,9 @@ Publiczny kontrakt maszynowy: [collection.schema.json](https://lpociask.github.i
 
 ## Następne etapy
 
-1. Pilot na 100–200 realnych książkach i numerach prasy.
+1. Pilot na 100–200 realnych książkach i numerach prasy wraz z lokalnym raportem czasu, skuteczności źródeł i ręcznych korekt.
 2. Dalsze utwardzenie metadanych: e‑ISBN, pochodzenie pojedynczych pól i obsługa niejednoznacznych wyników.
-3. Odczyt dodatków EAN‑2/EAN‑5, OCR okładki i półautomatyczne rozpoznawanie konkretnych numerów prasy.
+3. Walidacja na fizycznych próbkach dodatków EAN‑2/EAN‑5, OCR oraz analizy brakujących i zdublowanych numerów.
 4. Dopiero po pilocie: decyzja o prywatnym backendzie synchronizacji i koncie użytkownika.
 
 Szczegółowa kolejność znajduje się w [`docs/ROADMAP.md`](docs/ROADMAP.md).

@@ -514,6 +514,23 @@ enum CollectionImporter {
                     "„\(id)” ma nieprawidłowy rok wydania."
                 )
             }
+            if let rawEAN = publication.identifiers.ean?.trimmed.nilIfBlank {
+                if rawEAN.count != 13 || !rawEAN.allSatisfy(\.isNumber) {
+                    throw CollectionImportError.invalidPublication(
+                        "„\(id)” ma nieprawidłowe pole ean. " +
+                            "Pole ean może zawierać wyłącznie 13 cyfr; pełny kod z dodatkiem zapisz w barcode."
+                    )
+                }
+
+                if let rawBarcode = publication.identifiers.barcode?.trimmed.nilIfBlank,
+                   let barcodeMainEAN = periodicalCompositeMainEAN(from: rawBarcode),
+                   normalizedEANForComparison(rawEAN) != barcodeMainEAN {
+                    throw CollectionImportError.invalidPublication(
+                        "„\(id)” ma niespójne identyfikatory: EAN „\(rawEAN)” nie zgadza się " +
+                            "z głównym kodem „\(barcodeMainEAN)” zapisanym w barcode."
+                    )
+                }
+            }
         }
 
         let validLocationTypes = Set(["home", "room", "bookcase", "shelf", "box", "other"])
@@ -618,6 +635,30 @@ enum CollectionImporter {
             ownedItems: payload.ownedItems,
             locationsByID: locationsByID
         )
+    }
+
+    /// In canonical v1 a full periodical barcode is one atomic observation:
+    /// `ean` stores its 13-digit main code and `barcode` stores `main+addon`.
+    /// Arbitrary legacy raw barcodes remain tolerated because they do not parse
+    /// as a valid EAN-977 composite.
+    private static func periodicalCompositeMainEAN(from rawBarcode: String) -> String? {
+        let parsed = PublicationIdentifierParser.parse(rawBarcode)
+        guard parsed.isValid,
+              parsed.kind == .ean13,
+              parsed.normalized.hasPrefix("977"),
+              let supplement = parsed.eanSupplement,
+              supplement.count == 2 || supplement.count == 5 else {
+            return nil
+        }
+        return parsed.normalized
+    }
+
+    private static func normalizedEANForComparison(_ rawEAN: String) -> String {
+        let parsed = PublicationIdentifierParser.parse(rawEAN)
+        guard parsed.isValid, parsed.kind == .ean13 else {
+            return rawEAN.trimmed
+        }
+        return parsed.normalized
     }
 
     private static func validateLocationCycles(

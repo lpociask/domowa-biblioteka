@@ -51,6 +51,7 @@ struct AddItemFlow: View {
     @State private var issn = ""
     @State private var ean = ""
     @State private var barcode = ""
+    @State private var eanSupplement = ""
     @State private var issueNumber = ""
     @State private var issueVolume = ""
     @State private var issueDate = ""
@@ -71,6 +72,8 @@ struct AddItemFlow: View {
     @State private var isSaving = false
     @State private var recentSaveNotice: RecentSaveNotice?
     @State private var serialModeEnabled: Bool
+    @State private var forceNewPeriodicalPublication = false
+    @State private var showsPeriodicalCoverOCR = false
 
     private let metadataProvider: any BookMetadataProviding
     private let onMutation: (() -> Void)?
@@ -135,6 +138,16 @@ struct AddItemFlow: View {
         } message: {
             Text(validationMessage ?? "")
         }
+        .sheet(isPresented: $showsPeriodicalCoverOCR) {
+            PeriodicalCoverOCRView(
+                existingIssueNumber: issueNumber,
+                existingIssueVolume: issueVolume,
+                existingIssueDate: issueDate,
+                onApply: applyPeriodicalOCRSelection
+            )
+            .presentationDetents([.large])
+            .presentationDragIndicator(.visible)
+        }
     }
 
     private var scanner: some View {
@@ -188,6 +201,15 @@ struct AddItemFlow: View {
                     )
                 }
 
+                if forceNewPeriodicalPublication, publicationType == .periodical {
+                    EditorialStatusBand(
+                        title: "Nowy numer pisma",
+                        message: "Podobny kod pozostaje wskazówką, ale zapis utworzy osobny numer. Uzupełnij numer lub datę z okładki.",
+                        icon: "newspaper",
+                        accent: LibraryPalette.orangeText
+                    )
+                }
+
                 if let duplicateMatch {
                     existingPublicationSection(duplicateMatch)
                 } else {
@@ -198,7 +220,7 @@ struct AddItemFlow: View {
 
                 locationSection
 
-                if duplicateMatch == nil, publicationType == .periodical {
+                if publicationType == .periodical {
                     periodicalSection
                 }
 
@@ -280,6 +302,17 @@ struct AddItemFlow: View {
                 .lineSpacing(3)
                 .foregroundStyle(LibraryPalette.mutedInk)
                 .fixedSize(horizontal: false, vertical: true)
+
+            if publication.publicationType == .periodical {
+                EditorialActionRow(
+                    title: "To jest inny numer",
+                    detail: "Zachowaj dane tytułu, ale utwórz osobny numer prasy.",
+                    icon: "plus.rectangle.on.rectangle",
+                    accent: LibraryPalette.orangeText
+                ) {
+                    prepareSeparatePeriodicalIssue(from: publication)
+                }
+            }
         }
         .padding(LibrarySpacing.medium)
         .background(LibraryPalette.ink.opacity(0.045))
@@ -356,6 +389,46 @@ struct AddItemFlow: View {
                 .font(.system(.body, design: .serif))
                 .lineSpacing(3)
                 .foregroundStyle(LibraryPalette.mutedInk)
+
+            EditorialActionRow(
+                title: "Odczytaj numer z okładki",
+                detail: "Zrób zdjęcie; OCR lokalnie zaproponuje numer, tom i datę.",
+                icon: "text.viewfinder",
+                accent: LibraryPalette.orangeText
+            ) {
+                showsPeriodicalCoverOCR = true
+            }
+            .accessibilityIdentifier("addItem.periodicalCoverOCR")
+
+            EditorialLabeledTextField(
+                label: "Dodatek EAN (2 lub 5 cyfr)",
+                text: $eanSupplement,
+                prompt: "np. 05 albo 00123",
+                keyboardType: .numberPad
+            )
+
+            if isValidEANSupplement {
+                EditorialStatusBand(
+                    title: "Dodatek EAN odczytany",
+                    message: "Wartość \(cleanEANSupplement) pomaga rozróżnić numer, ale jej znaczenie zależy od wydawcy. Sprawdź okładkę przed użyciem jej jako numeru.",
+                    icon: "barcode"
+                )
+
+                if issueNumber.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    EditorialActionRow(
+                        title: "Użyj dodatku jako numeru",
+                        detail: "Skopiuj \(cleanEANSupplement) do pola numeru i potwierdź z okładką.",
+                        icon: "arrow.down.doc",
+                        accent: LibraryPalette.orangeText
+                    ) {
+                        issueNumber = cleanEANSupplement
+                        UIAccessibility.post(
+                            notification: .announcement,
+                            argument: "Wpisano numer \(cleanEANSupplement). Sprawdź go z okładką."
+                        )
+                    }
+                }
+            }
 
             EditorialLabeledTextField(
                 label: "Numer",
@@ -764,16 +837,67 @@ struct AddItemFlow: View {
     }
 
     private var duplicateMatch: ExistingPublicationMatch? {
-        ExistingPublicationMatcher.match(
+        guard !(forceNewPeriodicalPublication && publicationType == .periodical) else {
+            return nil
+        }
+        return detectedDuplicateMatch
+    }
+
+    private var detectedDuplicateMatch: ExistingPublicationMatch? {
+        guard cleanEANSupplement.isEmpty || isValidEANSupplement else {
+            return nil
+        }
+        return ExistingPublicationMatcher.match(
             in: existingItems,
             type: publicationType,
             isbn13: isbn13,
             issn: issn,
             ean: ean,
+            barcode: canonicalBarcode(ean: ean, supplement: cleanEANSupplement),
             issueNumber: issueNumber,
             issueDate: issueDate,
             locationPath: LocationPath(catalogingSession.locationText)
         )
+    }
+
+    private var cleanEANSupplement: String {
+        eanSupplement.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var isValidEANSupplement: Bool {
+        let supplement = cleanEANSupplement
+        guard supplement.count == 2 || supplement.count == 5,
+              supplement.allSatisfy(\.isNumber) else {
+            return false
+        }
+        let parsed = PublicationIdentifierParser.parse(ean)
+        let primary = String(parsed.normalized.prefix(13))
+        return parsed.isValid
+            && parsed.kind == .ean13
+            && primary.hasPrefix("977")
+            && PublicationIdentifierParser.isValidEAN13(primary)
+    }
+
+    private func canonicalBarcode(ean: String, supplement: String) -> String {
+        guard publicationType == .periodical else {
+            return barcode.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+
+        let parsed = PublicationIdentifierParser.parse(ean)
+        let primary = String(parsed.normalized.prefix(13))
+        guard parsed.isValid,
+              parsed.kind == .ean13,
+              primary.hasPrefix("977"),
+              PublicationIdentifierParser.isValidEAN13(primary) else {
+            return barcode.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+
+        let cleanSupplement = supplement.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard (cleanSupplement.count == 2 || cleanSupplement.count == 5),
+              cleanSupplement.allSatisfy(\.isNumber) else {
+            return primary
+        }
+        return "\(primary)+\(cleanSupplement)"
     }
 
     private var canSave: Bool {
@@ -811,6 +935,13 @@ struct AddItemFlow: View {
     }
 
     private func duplicateMessage(for match: ExistingPublicationMatch) -> String {
+        if match.publication.publicationType == .periodical {
+            if match.kind == .possibleRepeatScan {
+                return "Na tej półce jest już podobny numer. Dodatek EAN jest wskazówką, nie dowodem: sprawdź numer i datę na okładce. Możesz dodać kopię albo wybrać „To jest inny numer”."
+            }
+            return "W kolekcji jest podobny numer pisma. Sprawdź numer i datę na okładce; jeśli to inne wydanie, wybierz „To jest inny numer”."
+        }
+
         if match.kind == .possibleRepeatScan {
             let label = match.copyCountAtCurrentLocation == 1 ? "egzemplarz" : "egzemplarze"
             return "Na tej półce są już \(match.copyCountAtCurrentLocation) \(label) tego wydania. Sprawdź, czy nie skanujesz ponownie tej samej sztuki. Zapis mimo to utworzy kolejną kopię."
@@ -821,7 +952,75 @@ struct AddItemFlow: View {
     }
 
     private func duplicateTitle(for match: ExistingPublicationMatch) -> String {
-        match.kind == .possibleRepeatScan ? "Możliwy ponowny skan" : "Kolejny egzemplarz"
+        if match.publication.publicationType == .periodical {
+            return match.kind == .possibleRepeatScan
+                ? "Możliwy ponowny skan numeru"
+                : "Możliwy kolejny egzemplarz"
+        }
+        return match.kind == .possibleRepeatScan
+            ? "Możliwy ponowny skan"
+            : "Kolejny egzemplarz"
+    }
+
+    private func prepareSeparatePeriodicalIssue(from publication: Publication) {
+        forceNewPeriodicalPublication = true
+        if title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            title = publication.title
+        }
+        if subtitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            subtitle = publication.subtitle
+        }
+        if authors.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            authors = publication.authorsText
+        }
+        if publisher.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            publisher = publication.publisher
+        }
+        if language.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            language = publication.language
+        }
+        if publicationYear.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+           let year = publication.publicationYear {
+            publicationYear = String(year)
+        }
+        if issn.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            issn = publication.issn
+        }
+        // A new issue may have a different cover even when the series is the same.
+        coverURLString = ""
+        coverSource = ""
+        metadataSource = "manual"
+        UINotificationFeedbackGenerator().notificationOccurred(.success)
+        UIAccessibility.post(
+            notification: .announcement,
+            argument: "Nowy numer pisma. Uzupełnij numer lub datę z okładki."
+        )
+    }
+
+    private func applyPeriodicalOCRSelection(_ selection: PeriodicalCoverOCRSelection) {
+        var appliedFields: [String] = []
+        if issueNumber.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+           let value = selection.issueNumber {
+            issueNumber = value
+            appliedFields.append("numer")
+        }
+        if issueVolume.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+           let value = selection.issueVolume {
+            issueVolume = value
+            appliedFields.append("tom")
+        }
+        if issueDate.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+           let value = selection.issueDate {
+            issueDate = value
+            appliedFields.append("data")
+        }
+        guard !appliedFields.isEmpty else { return }
+        metadataSource = "ocr"
+        UINotificationFeedbackGenerator().notificationOccurred(.success)
+        UIAccessibility.post(
+            notification: .announcement,
+            argument: "Uzupełniono z okładki: \(appliedFields.joined(separator: ", ")). Sprawdź dane przed zapisem."
+        )
     }
 
     private func undoRecentSave() {
@@ -881,6 +1080,7 @@ struct AddItemFlow: View {
         issn = ""
         ean = ""
         barcode = ""
+        eanSupplement = ""
         issueNumber = ""
         issueVolume = ""
         issueDate = ""
@@ -889,6 +1089,7 @@ struct AddItemFlow: View {
         coverSource = ""
         validationMessage = nil
         showsMoreData = false
+        forceNewPeriodicalPublication = false
 
         if !preserveCopyFields {
             // Lokalizacja zostaje: to najważniejsze przy seryjnym skanowaniu półki.
@@ -903,7 +1104,9 @@ struct AddItemFlow: View {
     @discardableResult
     private func apply(identifier rawValue: String) -> String? {
         let parsed = PublicationIdentifierParser.parse(rawValue)
-        barcode = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        barcode = parsed.eanSupplement.map { "\(parsed.normalized)+\($0)" }
+            ?? rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        eanSupplement = parsed.eanSupplement ?? ""
 
         switch parsed.kind {
         case .isbn10 where parsed.isValid,
@@ -1046,6 +1249,7 @@ struct AddItemFlow: View {
         }
 
         var normalizedEAN = ean.trimmingCharacters(in: .whitespacesAndNewlines)
+        var supplement = cleanEANSupplement
         if !normalizedEAN.isEmpty {
             let parsed = PublicationIdentifierParser.parse(normalizedEAN)
             if parsed.kind == .ean13 || parsed.kind == .isbn13 {
@@ -1053,20 +1257,42 @@ struct AddItemFlow: View {
                     validationMessage = "EAN-13 ma nieprawidłową cyfrę kontrolną."
                     return
                 }
-                normalizedEAN = parsed.normalized
+                normalizedEAN = String(parsed.normalized.prefix(13))
+                if supplement.isEmpty, let parsedSupplement = parsed.eanSupplement {
+                    supplement = parsedSupplement
+                }
             }
         }
 
-        let match = ExistingPublicationMatcher.match(
-            in: existingItems,
-            type: publicationType,
-            isbn13: normalizedISBN,
-            issn: issn,
-            ean: normalizedEAN,
-            issueNumber: issueNumber,
-            issueDate: issueDate,
-            locationPath: LocationPath(catalogingSession.locationText)
-        )
+        if !supplement.isEmpty {
+            guard publicationType == .periodical,
+                  (supplement.count == 2 || supplement.count == 5),
+                  supplement.allSatisfy(\.isNumber) else {
+                validationMessage = "Dodatek EAN musi mieć dokładnie 2 albo 5 cyfr."
+                return
+            }
+            guard normalizedEAN.hasPrefix("977"),
+                  PublicationIdentifierParser.isValidEAN13(normalizedEAN) else {
+                validationMessage = "Dodatek EAN można zapisać tylko razem z prawidłowym kodem prasy 977."
+                return
+            }
+        }
+        let normalizedBarcode = canonicalBarcode(ean: normalizedEAN, supplement: supplement)
+
+        let forceNewPublication = forceNewPeriodicalPublication && publicationType == .periodical
+        let match = forceNewPublication
+            ? nil
+            : ExistingPublicationMatcher.match(
+                in: existingItems,
+                type: publicationType,
+                isbn13: normalizedISBN,
+                issn: issn,
+                ean: normalizedEAN,
+                barcode: normalizedBarcode,
+                issueNumber: issueNumber,
+                issueDate: issueDate,
+                locationPath: LocationPath(catalogingSession.locationText)
+            )
 
         guard match != nil || !cleanTitle.isEmpty else {
             validationMessage = "Tytuł jest wymagany."
@@ -1096,7 +1322,7 @@ struct AddItemFlow: View {
             isbn13: normalizedISBN,
             issn: issn.trimmingCharacters(in: .whitespacesAndNewlines),
             ean: normalizedEAN,
-            barcode: barcode.trimmingCharacters(in: .whitespacesAndNewlines),
+            barcode: normalizedBarcode,
             issueNumber: issueNumber.trimmingCharacters(in: .whitespacesAndNewlines),
             issueVolume: issueVolume.trimmingCharacters(in: .whitespacesAndNewlines),
             issueDate: issueDate.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -1105,7 +1331,8 @@ struct AddItemFlow: View {
             coverSource: coverSource,
             locationPathText: catalogingSession.locationText,
             notes: notes.trimmingCharacters(in: .whitespacesAndNewlines),
-            savedAt: now
+            savedAt: now,
+            forceNewPublication: forceNewPublication
         )
 
         isSaving = true
@@ -1119,7 +1346,7 @@ struct AddItemFlow: View {
             savedUsedExistingPublication = result.usedExisting
 
             if serialModeEnabled {
-                let scannedCode = barcode.trimmingCharacters(in: .whitespacesAndNewlines)
+                let scannedCode = normalizedBarcode
                 recentSaveNotice = RecentSaveNotice(
                     itemID: result.item.id,
                     title: result.publication.title,
