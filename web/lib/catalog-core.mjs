@@ -132,7 +132,37 @@ function normalizeIdentifiers(raw, legacyEdition = {}) {
   };
 }
 
-function normalizeMetadata(raw = {}) {
+function normalizedCoverUrl(value) {
+  const raw = asString(value);
+  if (!raw) return null;
+  try {
+    if (new TextEncoder().encode(raw).length > 2048) throw new TypeError("too long");
+    if (!/^[!-~]+$/.test(raw)) throw new TypeError("non-ASCII URL");
+    const url = new URL(raw);
+    if (url.protocol !== "https:" || !url.hostname || url.username || url.password) {
+      throw new TypeError("unsafe URL");
+    }
+    const normalized = url.href;
+    if (new TextEncoder().encode(normalized).length > 2048) throw new TypeError("too long");
+    if (!/^[!-~]+$/.test(normalized)) throw new TypeError("non-ASCII URL");
+    return normalized;
+  } catch {
+    return null;
+  }
+}
+
+export function automaticCoverUrl(value) {
+  const normalized = normalizedCoverUrl(value);
+  if (!normalized) return null;
+  const url = new URL(normalized);
+  return url.hostname === "covers.openlibrary.org" &&
+    (url.port === "" || url.port === "443")
+    ? url.href
+    : null;
+}
+
+function normalizeMetadata(raw = {}, { strict = true, field = "metadata" } = {}) {
+  const coverUrl = normalizedCoverUrl(raw.coverUrl || raw.cover?.url);
   return {
     ...raw,
     description: asString(raw.description) || null,
@@ -140,7 +170,8 @@ function normalizeMetadata(raw = {}) {
     pageCount: asOptionalNumber(raw.pageCount),
     source: asString(raw.source) || null,
     sourceUrl: asString(raw.sourceUrl) || null,
-    coverUrl: asString(raw.coverUrl || raw.cover?.url) || null,
+    coverUrl,
+    coverSource: coverUrl ? asString(raw.coverSource || raw.cover?.source) || null : null,
     coverColor: asString(raw.coverColor || raw.cover?.color, "#355f55"),
   };
 }
@@ -148,11 +179,14 @@ function normalizeMetadata(raw = {}) {
 function normalizePublication(raw, index, { strict = true, fallbackAt = new Date().toISOString() } = {}) {
   const work = raw?.work && typeof raw.work === "object" ? raw.work : {};
   const edition = raw?.edition && typeof raw.edition === "object" ? raw.edition : {};
-  const metadata = normalizeMetadata({
-    ...(raw || {}),
-    ...(raw?.metadata || {}),
-    cover: raw?.cover || raw?.metadata?.cover,
-  });
+  const metadata = normalizeMetadata(
+    {
+      ...(raw || {}),
+      ...(raw?.metadata || {}),
+      cover: raw?.cover || raw?.metadata?.cover,
+    },
+    { strict, field: `publications[${index}].metadata` },
+  );
   const title = asString(raw?.title || work.title, "Bez tytułu");
   const identifiers = normalizeIdentifiers(raw?.identifiers, {
     isbn13: raw?.isbn13 || raw?.isbn || edition.isbn13,

@@ -28,7 +28,7 @@ Testy korzystają wyłącznie z modułów wbudowanych w Node.js.
 - Import pliku jest ograniczony do 25 MB, tak samo jak w aplikacji iOS.
 - Bieżąca kolekcja jest przechowywana w `localStorage` pod kluczem `polka.collection.v1`.
 - GitHub Pages serwuje wyłącznie pliki statyczne. Nie wysyła kolekcji do repozytorium i nie synchronizuje jej automatycznie z iPhone’em. W MVP wspólny plik JSON można eksportować i importować w obie strony między aplikacją iOS a WWW oraz przenosić między przeglądarkami.
-- Interfejs nie pobiera zewnętrznych okładek, więc samo przeglądanie katalogu nie ujawnia listy publikacji zewnętrznym serwerom obrazów.
+- Otwarcie katalogu i przewijanie listy nie pobiera zewnętrznych okładek. Po świadomym otwarciu szczegółów aplikacja może pobrać wyłącznie obraz HTTPS z `covers.openlibrary.org`; nieznane hosty zachowuje w JSON-ie, ale ich automatycznie nie wywołuje.
 
 ## Publikacja na GitHub Pages
 

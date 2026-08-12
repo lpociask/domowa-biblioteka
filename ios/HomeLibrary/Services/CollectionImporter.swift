@@ -206,6 +206,8 @@ enum CollectionImporter {
         // Wszystkie konflikty są już sprawdzone. Dopiero teraz zaczynamy mutować kontekst.
         for source in publicationsToInsert {
             let id = publicationUUID(for: source.id)
+            let importedCoverURL = source.metadata?.coverUrl
+                .flatMap { RemoteCoverURLPolicy.validatedReference($0)?.absoluteString }
             let publication = Publication(
                 id: id,
                 externalID: source.id.trimmed,
@@ -227,6 +229,10 @@ enum CollectionImporter {
                 issueVolume: source.issue?.volume?.trimmed ?? "",
                 issueDate: source.issue?.date?.trimmed ?? "",
                 metadataSource: source.metadata?.source?.trimmed.nilIfBlank ?? "import",
+                coverURLString: importedCoverURL ?? "",
+                coverSource: importedCoverURL == nil
+                    ? ""
+                    : (source.metadata?.coverSource?.trimmed ?? ""),
                 createdAt: source.createdAt,
                 updatedAt: source.updatedAt
             )
@@ -762,7 +768,22 @@ private struct ImportIssue: Decodable, Sendable {
 }
 
 private struct ImportMetadata: Decodable, Sendable {
+    private enum CodingKeys: String, CodingKey {
+        case source
+        case coverUrl
+        case coverSource
+    }
+
     let source: String?
+    let coverUrl: String?
+    let coverSource: String?
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        source = try container.decodeIfPresent(String.self, forKey: .source)
+        coverUrl = (try? container.decodeIfPresent(String.self, forKey: .coverUrl)) ?? nil
+        coverSource = (try? container.decodeIfPresent(String.self, forKey: .coverSource)) ?? nil
+    }
 }
 
 fileprivate struct ImportOwnedItem: Decodable, Sendable {

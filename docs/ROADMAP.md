@@ -18,12 +18,23 @@
 - [x] lookup pojedynczego ISBN uruchamiany przez użytkownika, bez zadań wsadowych;
 - [x] cache HTTP dla Open Library i zapis pochodzenia zaakceptowanych metadanych;
 - [x] zachowanie ręcznych zmian wykonanych podczas trwania lookupu;
+- [x] jawny, trwały cache metadanych: 30 dni dla wyników, 24 godziny dla braku rekordu i awaryjny odczyt stale do roku;
+- [x] okładki Open Library z bezpiecznym cache obrazów, limitami, usuwaniem metadanych zdjęcia i pracą offline;
 - [ ] adapter e‑ISBN jako uzupełnienie nowych polskich wydań;
-- [ ] jawny, trwały cache metadanych z TTL, pochodzeniem pól i polityką odświeżania;
+- [ ] pochodzenie na poziomie pojedynczych pól i ekran porównania rozbieżnych źródeł;
 - [ ] ekran wyboru wyniku, gdy źródła zwracają różne wydania;
 - [ ] zdjęcie strony tytułowej i ręczny fallback dla książek bez kodu.
 
-Open Library pozostaje eksperymentalnym źródłem low-volume. Bieżący cache jest cache'em HTTP `URLSession`, a nie trwałą lokalną bazą odpowiedzi.
+Open Library pozostaje eksperymentalnym źródłem low-volume. Odpowiedzi katalogowe i przetworzone okładki są przechowywane w osobnych, odbudowywalnych cache'ach poza bazą kolekcji i poza kopią zapasową.
+
+## Etap 1.5 — wygodne katalogowanie półki
+
+- [x] wybór i normalizacja bieżącej lokalizacji, np. „Gabinet / Regał 2 / Półka 3”;
+- [x] tryb seryjnego skanowania z zachowaniem lokalizacji;
+- [x] wykrywanie kolejnej kopii i możliwego ponownego skanu na tej samej półce;
+- [x] edycja opisu, przenoszenie egzemplarza i bezpieczne usuwanie;
+- [x] szybkie cofnięcie zapisu, edycji, przeniesienia i usunięcia;
+- [ ] pomiar ergonomii na pilocie 100–200 realnych obiektów.
 
 ## Etap 2 — prasa
 

@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 import {
+  automaticCoverUrl,
   catalogEntries,
   collectionStats,
   exportPayload,
@@ -111,6 +112,51 @@ test("kanoniczna normalizacja odrzuca nieprawidłowe lata i daty", () => {
   invalidItemDate.ownedItems[0].addedAt = "11.08.2026";
   assert.throws(() => normalizeCollection(invalidItemDate), /addedAt/);
   assert.throws(() => exportPayload(canonical, "jutro"), /exportedAt/);
+});
+
+test("okładka HTTPS przechodzi round-trip, a niebezpieczna referencja jest pomijana bez utraty kolekcji", () => {
+  const input = structuredClone(canonical);
+  input.publications[0].metadata.coverUrl =
+    "https://covers.openlibrary.org/b/isbn/9780306406157-M.jpg?default=false";
+  input.publications[0].metadata.coverSource = "openlibrary";
+
+  const normalized = normalizeCollection(input);
+  const exported = exportPayload(normalized, "2026-08-11T14:00:00Z");
+  assert.equal(exported.publications[0].metadata.coverUrl, input.publications[0].metadata.coverUrl);
+  assert.equal(exported.publications[0].metadata.coverSource, "openlibrary");
+
+  for (const invalidUrl of [
+    "http://covers.openlibrary.org/b/id/123-M.jpg",
+    "file:///tmp/cover.jpg",
+    "https://user:secret@covers.openlibrary.org/b/id/123-M.jpg",
+    "https://covers.openlibrary.org/okładka.jpg",
+    "https://covers.openlibrary.org/cover name.jpg",
+    "legacy-local-cache-key",
+    `https://example.com/${"<".repeat(700)}`,
+    { legacy: "local-cache-key" },
+    12345,
+  ]) {
+    const invalid = structuredClone(canonical);
+    invalid.publications[0].metadata.coverUrl = invalidUrl;
+    invalid.publications[0].metadata.coverSource = ["legacy"];
+    const withoutUnsafeCover = normalizeCollection(invalid);
+    assert.equal(withoutUnsafeCover.publications.length, 1);
+    assert.equal(withoutUnsafeCover.publications[0].title, canonical.publications[0].title);
+    assert.equal(withoutUnsafeCover.publications[0].metadata.coverUrl, null);
+    assert.equal(withoutUnsafeCover.publications[0].metadata.coverSource, null);
+    assert.equal(withoutUnsafeCover.ownedItems.length, canonical.ownedItems.length);
+  }
+
+  assert.equal(
+    automaticCoverUrl("HTTPS://covers.openlibrary.org/b/id/123-M.jpg"),
+    "https://covers.openlibrary.org/b/id/123-M.jpg",
+  );
+  assert.equal(
+    automaticCoverUrl("https://covers.openlibrary.org:443/b/id/123-M.jpg"),
+    "https://covers.openlibrary.org/b/id/123-M.jpg",
+  );
+  assert.equal(automaticCoverUrl("https://covers.openlibrary.org:444/b/id/123-M.jpg"), null);
+  assert.equal(automaticCoverUrl("https://example.com/cover.jpg"), null);
 });
 
 test("buduje hierarchiczną ścieżkę lokalizacji i chroni się przed cyklem", () => {
@@ -278,6 +324,11 @@ test("wspólny fixture przechodzi normalize, export i merge bez utraty semantyki
   assert.equal(roundTripped.ownedItems[0].id, "owned-item-with-text-id");
   assert.equal(roundTripped.ownedItems[0].publicationId, "publication-with-text-id");
   assert.equal(roundTripped.publications[0].identifiers.barcode, "FIXTURE-001");
+  assert.equal(
+    roundTripped.publications[0].metadata.coverUrl,
+    "https://cdn.example.org/covers/fixture-001.jpg",
+  );
+  assert.equal(roundTripped.publications[0].metadata.coverSource, "fixture");
   assert.deepEqual(roundTripped.publications[0].authors, [
     "Sacher-Masoch, Leopold von",
     "Nowak, Anna",

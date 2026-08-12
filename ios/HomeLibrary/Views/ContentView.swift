@@ -177,9 +177,46 @@ struct ContentView: View {
             if collectionID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 collectionID = UUID().uuidString
             }
+#if DEBUG
+            applyUITestDestinationIfRequested()
+#endif
         }
+#if DEBUG
+        .onChange(of: items.count) { _, _ in
+            applyUITestDestinationIfRequested()
+        }
+#endif
         .libraryLightAppearance()
     }
+
+#if DEBUG
+    private func applyUITestDestinationIfRequested() {
+        let arguments = ProcessInfo.processInfo.arguments
+        guard arguments.contains("-ui-testing"),
+              let destinationIndex = arguments.firstIndex(of: "-ui-destination"),
+              arguments.indices.contains(destinationIndex + 1) else {
+            return
+        }
+
+        switch arguments[destinationIndex + 1] {
+        case "item-detail":
+            let requestedTitle: String? = arguments.firstIndex(of: "-ui-item-title")
+                .flatMap { index in arguments.indices.contains(index + 1) ? arguments[index + 1] : nil }
+            let item = requestedTitle
+                .flatMap { title in items.first { $0.publication?.title == title } }
+                ?? items.first
+            if navigationPath.isEmpty, let item {
+                navigationPath = [item.persistentModelID]
+            }
+        case "add-manual":
+            if addItemRoute == nil {
+                addItemRoute = .manual
+            }
+        default:
+            break
+        }
+    }
+#endif
 
     @ToolbarContentBuilder
     private var collectionToolbar: some ToolbarContent {
@@ -598,30 +635,44 @@ private struct PublicationRow: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: LibrarySpacing.xSmall) {
-            NavigationLink(value: item.id) {
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack(spacing: 8) {
-                        Text(String(format: "%02d", index)).font(.caption.monospacedDigit().weight(.bold))
-                        Rectangle().fill(LibraryPalette.orange).frame(width: 20, height: 2).accessibilityHidden(true)
-                        Text(publicationTypeLabel.uppercased()).font(.caption2.weight(.bold)).tracking(1.3)
+            NavigationLink(value: item.persistentModelID) {
+                HStack(alignment: .top, spacing: LibrarySpacing.small) {
+                    if let publication = item.publication,
+                       let coverURL = publication.resolvedCoverURL,
+                       !dynamicTypeSize.isAccessibilitySize {
+                        PublicationCoverView(
+                            url: coverURL,
+                            title: publication.title,
+                            source: publication.resolvedCoverSource,
+                            mode: .thumbnail
+                        )
                     }
-                    .foregroundStyle(LibraryPalette.orangeText)
-                    Text(item.publication?.title.nilIfBlank ?? "Publikacja bez tytułu")
-                        .font(.system(.title3, design: .serif, weight: .bold))
-                        .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 3)
-                        .fixedSize(horizontal: false, vertical: true)
-                    if let detail = publicationDetail {
-                        Text(detail).font(.subheadline).foregroundStyle(LibraryPalette.mutedInk)
-                            .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 2)
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack(spacing: 8) {
+                            Text(String(format: "%02d", index)).font(.caption.monospacedDigit().weight(.bold))
+                            Rectangle().fill(LibraryPalette.orange).frame(width: 20, height: 2).accessibilityHidden(true)
+                            Text(publicationTypeLabel.uppercased()).font(.caption2.weight(.bold)).tracking(1.3)
+                        }
+                        .foregroundStyle(LibraryPalette.orangeText)
+                        Text(item.publication?.title.nilIfBlank ?? "Publikacja bez tytułu")
+                            .font(.system(.title3, design: .serif, weight: .bold))
+                            .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 3)
                             .fixedSize(horizontal: false, vertical: true)
+                        if let detail = publicationDetail {
+                            Text(detail).font(.subheadline).foregroundStyle(LibraryPalette.mutedInk)
+                                .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 2)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        HStack(alignment: .firstTextBaseline, spacing: 7) {
+                            Image(systemName: "mappin").font(.caption.weight(.bold))
+                                .foregroundStyle(LibraryPalette.orangeText).accessibilityHidden(true)
+                            Text(item.locationDisplayName).font(.caption).foregroundStyle(LibraryPalette.mutedInk)
+                                .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 2)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
                     }
-                    HStack(alignment: .firstTextBaseline, spacing: 7) {
-                        Image(systemName: "mappin").font(.caption.weight(.bold))
-                            .foregroundStyle(LibraryPalette.orangeText).accessibilityHidden(true)
-                        Text(item.locationDisplayName).font(.caption).foregroundStyle(LibraryPalette.mutedInk)
-                            .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 2)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
+                    .frame(maxWidth: .infinity, alignment: .topLeading)
                 }
                 .foregroundStyle(LibraryPalette.ink)
                 .frame(maxWidth: .infinity, minHeight: 108, alignment: .topLeading)

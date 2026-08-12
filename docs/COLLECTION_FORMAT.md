@@ -40,7 +40,9 @@ Maszynowy kontrakt znajduje się w [`collection.schema.json`](collection.schema.
       },
       "issue": null,
       "metadata": {
-        "source": "manual"
+        "source": "manual",
+        "coverUrl": "https://covers.openlibrary.org/b/isbn/9780306406157-M.jpg?default=false",
+        "coverSource": "openlibrary"
       },
       "createdAt": "2026-08-11T12:00:00Z",
       "updatedAt": "2026-08-11T12:00:00Z"
@@ -71,6 +73,7 @@ Maszynowy kontrakt znajduje się w [`collection.schema.json`](collection.schema.
 - `issue` jest opcjonalne i może zawierać `number`, `volume` oraz `date` dla konkretnego numeru prasy.
 - `locationPath` pozwala wyświetlić lokalizację bez dodatkowych zapytań. `locationId` może być pominięte w najwcześniejszych eksportach.
 - `metadata.source` opisuje pochodzenie danych. Aplikacja iOS zapisuje obecnie `manual`, `scan`, `bn` albo `openlibrary`; import zachowuje również inne niepuste wartości źródłowe.
+- `metadata.coverUrl` jest opcjonalną, przenośną referencją do okładki, a `metadata.coverSource` zapisuje jej pochodzenie niezależnie od źródła opisu bibliograficznego. Writer v1 zapisuje wyłącznie bezpieczny adres HTTPS bez danych logowania, po normalizacji mieszczący się w 2048 bajtach. Reader zachowuje zgodność ze starszymi plikami: nieważną lub niebezpieczną referencję oraz powiązane `coverSource` pomija, ale nie odrzuca całej publikacji ani kolekcji. Eksport nie zawiera lokalnej ścieżki ani bajtów obrazu.
 - Nieznane opcjonalne pola powinny być ignorowane, nie powodować odrzucenia całego importu.
 
 ## Import w iOS
@@ -97,6 +100,7 @@ Semantyka importu jest celowo bezpieczna i addytywna:
 - import do pustej bazy przyjmuje `collection.id` i `collection.name`; przy scalaniu z istniejącą kolekcją oba klienty zachowują jej lokalną tożsamość;
 - publikacja bez żadnego fizycznego egzemplarza jest odrzucana, ponieważ bieżący model i eksport iOS są inwentarzem posiadanych obiektów;
 - brak `metadata.source` otrzymuje wartość `import`;
+- prawidłowy `metadata.coverUrl` jest normalizowany do adresu HTTPS bez danych logowania i po normalizacji może mieć najwyżej 2048 bajtów; nieznany host może zostać zachowany w eksporcie, ale nie jest automatycznie pobierany; nieważna referencja ze starszego pliku oraz jej `coverSource` są pomijane bez odrzucania publikacji lub całego importu;
 - nieznane pola są ignorowane, dzięki czemu opcjonalne rozszerzenia webu nie blokują importu.
 
 Odczyt, dekodowanie i walidacja pliku przebiegają poza głównym wątkiem. Dopiero sprawdzony plan importu jest atomowo stosowany do SwiftData na `MainActor`.
@@ -106,6 +110,8 @@ Import JSON nie jest synchronizacją ani mechanizmem rozwiązywania konfliktów.
 ## Prywatność pliku
 
 Eksport może zawierać nazwy pomieszczeń, dokładne ścieżki półek i prywatne notatki. Aplikacja nie wysyła go automatycznie do chmury. Użytkownik wybiera sposób transferu i miejsce kopii, a prawdziwe eksporty nie powinny trafiać do repozytorium ani publicznego hostingu.
+
+Okładki Open Library są pobierane tylko w przepływie świadomie uruchomionego lookupu albo po otwarciu szczegółów. Lista korzysta z lokalnego cache i nie odpytuje serwera obrazów podczas przewijania. WWW nie pobiera całej listy okładek podczas otwierania kolekcji; znany obraz Open Library jest ładowany dopiero w szczegółach publikacji.
 
 ## Migracje
 

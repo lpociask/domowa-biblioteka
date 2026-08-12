@@ -22,6 +22,8 @@ final class CollectionExporterTests: XCTestCase {
             issueNumber: "8/2026",
             issueDate: "2026-08",
             metadataSource: "scan",
+            coverURLString: "https://covers.openlibrary.org/b/id/123-M.jpg",
+            coverSource: "openlibrary",
             createdAt: timestamp,
             updatedAt: timestamp
         )
@@ -55,6 +57,9 @@ final class CollectionExporterTests: XCTestCase {
         XCTAssertEqual(json["schemaVersion"] as? Int, 1)
         XCTAssertNotNil(json["exportedAt"] as? String)
         XCTAssertEqual((json["publications"] as? [[String: Any]])?.first?["type"] as? String, "periodical")
+        let metadata = (json["publications"] as? [[String: Any]])?.first?["metadata"] as? [String: Any]
+        XCTAssertEqual(metadata?["coverUrl"] as? String, "https://covers.openlibrary.org/b/id/123-M.jpg")
+        XCTAssertEqual(metadata?["coverSource"] as? String, "openlibrary")
         XCTAssertEqual((json["ownedItems"] as? [[String: Any]])?.first?["status"] as? String, "owned")
     }
 

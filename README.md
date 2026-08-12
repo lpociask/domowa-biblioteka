@@ -4,6 +4,7 @@ Pierwszy vertical slice prywatnego katalogu książek i prasy:
 
 - natywna aplikacja iOS do skanowania, ręcznego dodawania oraz lokalnego przechowywania kolekcji;
 - automatyczne uzupełnianie książek po ISBN: najpierw z Biblioteki Narodowej, a w razie braku wyniku z Open Library;
+- trwały cache metadanych i bezpieczne okładki Open Library działające także po utracie połączenia;
 - rozpoznawanie prasowego EAN‑13 z prefiksem `977`, automatyczne ustawienie typu prasa i wyprowadzenie bazowego ISSN;
 - statyczny katalog WWW działający na GitHub Pages i przechowujący dane lokalnie w przeglądarce;
 - wspólny, wersjonowany format importu i eksportu JSON;
@@ -66,14 +67,14 @@ Publiczny kontrakt maszynowy: [collection.schema.json](https://lpociask.github.i
 - Lokalizacje domu są prywatne domyślnie.
 - Plik JSON może zawierać lokalizacje i notatki. Przenoś go świadomie, np. przez aplikację Pliki lub AirDrop, i samodzielnie wybierz miejsce przechowywania kopii.
 - Lookup metadanych wysyła do Biblioteki Narodowej, a w razie potrzeby do Open Library, wyłącznie znormalizowany ISBN. Nie wysyła lokalizacji, notatek ani całej kolekcji.
-- Open Library jest używane wyłącznie jako wywoływany przez użytkownika fallback o małym wolumenie, z cache HTTP; nie służy do masowego wzbogacania kolekcji.
+- Open Library jest używane wyłącznie jako wywoływany przez użytkownika fallback o małym wolumenie; jawny cache metadanych i okładek ogranicza ponowne zapytania, ale nie służy do masowego wzbogacania kolekcji.
 - GitHub Pages może być publicznie dostępny nawet wtedy, gdy kod znajduje się w prywatnym repozytorium — zależy to od planu i ustawień GitHub.
 - Przyszła synchronizacja będzie wymagała uwierzytelnionego API i bazy danych z izolacją kolekcji użytkowników.
 
 ## Następne etapy
 
 1. Pilot na 100–200 realnych książkach i numerach prasy.
-2. Utwardzenie metadanych: e‑ISBN, jawny cache z polityką odświeżania i obsługa niejednoznacznych wyników.
+2. Dalsze utwardzenie metadanych: e‑ISBN, pochodzenie pojedynczych pól i obsługa niejednoznacznych wyników.
 3. Odczyt dodatków EAN‑2/EAN‑5, OCR okładki i półautomatyczne rozpoznawanie konkretnych numerów prasy.
 4. Dopiero po pilocie: decyzja o prywatnym backendzie synchronizacji i koncie użytkownika.
 

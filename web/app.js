@@ -1,5 +1,6 @@
 import {
   ITEM_TYPES,
+  automaticCoverUrl,
   catalogEntries,
   collectionStats,
   exportPayload,
@@ -141,7 +142,7 @@ function authorLabel(publication) {
   return publication.type === "periodical" ? "Numer czasopisma" : "Autor nieznany";
 }
 
-function makeCover(publication) {
+function makeCover(publication, { allowRemote = false, imageAlt = "" } = {}) {
   const cover = makeElement("div", "publication-cover");
   cover.style.setProperty("--cover-color", safeColor(publication.metadata.coverColor));
   cover.append(
@@ -149,6 +150,20 @@ function makeCover(publication) {
     makeElement("strong", "cover-monogram", titleMonogram(publication.title)),
     makeElement("span", "cover-year", publication.publicationYear || "bez daty"),
   );
+
+  const coverUrl = allowRemote ? automaticCoverUrl(publication.metadata.coverUrl) : null;
+  if (coverUrl) {
+    const image = document.createElement("img");
+    image.className = "publication-cover-image";
+    image.src = coverUrl;
+    image.alt = imageAlt;
+    image.loading = "eager";
+    image.decoding = "async";
+    image.referrerPolicy = "no-referrer";
+    image.addEventListener("load", () => cover.classList.add("has-cover-image"), { once: true });
+    image.addEventListener("error", () => image.remove(), { once: true });
+    cover.append(image);
+  }
   return cover;
 }
 
@@ -299,7 +314,22 @@ function openDetail(entryId) {
 
   const layout = makeElement("div", "detail-layout");
   const coverPanel = makeElement("div", "detail-cover-panel");
-  coverPanel.append(makeCover(publication), makeElement("span", "detail-status", statusLabel(ownedItem.status)));
+  const detailCover = makeCover(publication, {
+    allowRemote: true,
+    imageAlt: `Okładka publikacji „${publication.title}”`,
+  });
+  coverPanel.append(
+    detailCover,
+    makeElement("span", "detail-status", statusLabel(ownedItem.status)),
+  );
+  const isbn = publication.identifiers.isbn13;
+  if (isbn && automaticCoverUrl(publication.metadata.coverUrl)) {
+    const credit = makeElement("a", "cover-credit", "Okładka · Open Library");
+    credit.href = `https://openlibrary.org/isbn/${encodeURIComponent(isbn)}`;
+    credit.target = "_blank";
+    credit.rel = "noopener noreferrer";
+    coverPanel.append(credit);
+  }
 
   const body = makeElement("div", "detail-body");
   body.append(makeElement("p", "detail-type", [typeLabel(publication), issueLabel(publication)].filter(Boolean).join(" · ")));

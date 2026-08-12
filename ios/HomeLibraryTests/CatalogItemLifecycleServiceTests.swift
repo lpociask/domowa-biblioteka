@@ -477,6 +477,8 @@ final class CatalogItemLifecycleServiceTests: XCTestCase {
             issueVolume: "82",
             issueDate: "2026-08",
             metadataSource: "scan",
+            coverURLString: "https://covers.openlibrary.org/b/id/123-M.jpg",
+            coverSource: "openlibrary",
             createdAt: Date(timeIntervalSince1970: 1_700_000_000),
             updatedAt: Date(timeIntervalSince1970: 1_710_000_000)
         )
@@ -534,6 +536,8 @@ final class CatalogItemLifecycleServiceTests: XCTestCase {
         XCTAssertEqual(snapshot.issueVolume, publication.issueVolume, file: file, line: line)
         XCTAssertEqual(snapshot.issueDate, publication.issueDate, file: file, line: line)
         XCTAssertEqual(snapshot.metadataSource, publication.metadataSource, file: file, line: line)
+        XCTAssertEqual(snapshot.coverURLString, publication.coverURLString, file: file, line: line)
+        XCTAssertEqual(snapshot.coverSource, publication.coverSource, file: file, line: line)
         XCTAssertEqual(snapshot.createdAt, publication.createdAt, file: file, line: line)
         XCTAssertEqual(snapshot.updatedAt, publication.updatedAt, file: file, line: line)
     }
@@ -561,6 +565,8 @@ final class CatalogItemLifecycleServiceTests: XCTestCase {
         XCTAssertEqual(publication.issueVolume, snapshot.issueVolume, file: file, line: line)
         XCTAssertEqual(publication.issueDate, snapshot.issueDate, file: file, line: line)
         XCTAssertEqual(publication.metadataSource, snapshot.metadataSource, file: file, line: line)
+        XCTAssertEqual(publication.coverURLString, snapshot.coverURLString, file: file, line: line)
+        XCTAssertEqual(publication.coverSource, snapshot.coverSource, file: file, line: line)
         XCTAssertEqual(publication.createdAt, snapshot.createdAt, file: file, line: line)
         XCTAssertEqual(publication.updatedAt, snapshot.updatedAt, file: file, line: line)
     }

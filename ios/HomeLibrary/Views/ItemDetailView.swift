@@ -5,6 +5,9 @@ struct ItemDetailView: View {
     var onEdit: (() -> Void)? = nil
     var onMove: (() -> Void)? = nil
 
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+
     var body: some View {
         ZStack {
             PaperBackground()
@@ -18,6 +21,8 @@ struct ItemDetailView: View {
                         message: item.locationDisplayName,
                         icon: "mappin.and.ellipse"
                     )
+
+                    stackedPublicationCover
 
                     if let onMove {
                         EditorialActionRow(
@@ -66,12 +71,16 @@ struct ItemDetailView: View {
     @ViewBuilder
     private var publicationHeader: some View {
         if let publication = item.publication {
-            LibraryMasthead(
-                title: clean(publication.title) ?? "Bez tytułu",
-                eyebrow: headerKicker(for: publication),
-                subtitle: headerSubtitle(for: publication)
-            )
-            .accessibilityLabel(accessibleHeaderLabel(for: publication))
+            if publication.resolvedCoverURL != nil, usesSideBySideHeader {
+                HStack(alignment: .top, spacing: LibrarySpacing.large) {
+                    masthead(for: publication)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+
+                    publicationCover(for: publication)
+                }
+            } else {
+                masthead(for: publication)
+            }
         } else {
             LibraryMasthead(
                 title: "Egzemplarz",
@@ -79,6 +88,38 @@ struct ItemDetailView: View {
                 subtitle: "Brak powiązanego opisu publikacji."
             )
         }
+    }
+
+    @ViewBuilder
+    private var stackedPublicationCover: some View {
+        if !usesSideBySideHeader,
+           let publication = item.publication,
+           publication.resolvedCoverURL != nil {
+            publicationCover(for: publication)
+                .frame(maxWidth: .infinity, alignment: .center)
+        }
+    }
+
+    private var usesSideBySideHeader: Bool {
+        horizontalSizeClass == .regular && !dynamicTypeSize.isAccessibilitySize
+    }
+
+    private func masthead(for publication: Publication) -> some View {
+        LibraryMasthead(
+            title: clean(publication.title) ?? "Bez tytułu",
+            eyebrow: headerKicker(for: publication),
+            subtitle: headerSubtitle(for: publication)
+        )
+        .accessibilityLabel(accessibleHeaderLabel(for: publication))
+    }
+
+    private func publicationCover(for publication: Publication) -> some View {
+        PublicationCoverView(
+            url: publication.resolvedCoverURL,
+            title: clean(publication.title) ?? "Bez tytułu",
+            source: publication.resolvedCoverSource,
+            mode: .detail
+        )
     }
 
     private var copyDetails: some View {

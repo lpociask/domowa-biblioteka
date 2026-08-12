@@ -91,6 +91,44 @@ final class CatalogingServiceTests: XCTestCase {
         XCTAssertEqual(try context.fetchCount(FetchDescriptor<OwnedItem>()), 2)
     }
 
+    func testDuplicateFillsOnlyMissingCoverAndNeverOverwritesAcceptedReference() throws {
+        let context = try makeContext()
+        let publication = Publication(
+            type: .book,
+            title: "Solaris",
+            isbn13: "9788308068854"
+        )
+        context.insert(publication)
+        context.insert(OwnedItem(publication: publication, locationPathText: "Gabinet"))
+        try context.save()
+
+        let service = CatalogingService(modelContext: context)
+        let firstURL = "https://covers.openlibrary.org/b/isbn/9788308068854-M.jpg?default=false"
+        _ = try service.save(CatalogingSaveRequest(
+            type: .book,
+            title: "",
+            isbn13: "9788308068854",
+            coverURLString: firstURL,
+            coverSource: "openlibrary",
+            locationPathText: "Salon"
+        ))
+
+        XCTAssertEqual(publication.coverURLString, firstURL)
+        XCTAssertEqual(publication.coverSource, "openlibrary")
+
+        _ = try service.save(CatalogingSaveRequest(
+            type: .book,
+            title: "",
+            isbn13: "9788308068854",
+            coverURLString: "https://covers.openlibrary.org/b/id/999-M.jpg",
+            coverSource: "other",
+            locationPathText: "Sypialnia"
+        ))
+
+        XCTAssertEqual(publication.coverURLString, firstURL)
+        XCTAssertEqual(publication.coverSource, "openlibrary")
+    }
+
     func testSamePeriodicalIssueWithDatePresentOnOnlyOneCopyUsesExistingPublication() throws {
         let context = try makeContext()
         let service = CatalogingService(modelContext: context)
@@ -132,6 +170,8 @@ final class CatalogingServiceTests: XCTestCase {
             issueVolume: "",
             issueDate: "",
             metadataSource: "BN",
+            coverURLString: "https://covers.openlibrary.org/b/id/123-M.jpg",
+            coverSource: "openlibrary",
             locationPathText: "  Dom// Gabinet  ›  Regał  2 / Półka 3  ",
             notes: "Egzemplarz z dedykacją",
             savedAt: savedAt
@@ -150,6 +190,8 @@ final class CatalogingServiceTests: XCTestCase {
         XCTAssertEqual(result.publication.ean, "9780306406157")
         XCTAssertEqual(result.publication.barcode, "9780306406157")
         XCTAssertEqual(result.publication.metadataSource, "BN")
+        XCTAssertEqual(result.publication.coverURLString, "https://covers.openlibrary.org/b/id/123-M.jpg")
+        XCTAssertEqual(result.publication.coverSource, "openlibrary")
         XCTAssertEqual(result.publication.createdAt, savedAt)
         XCTAssertEqual(result.publication.updatedAt, savedAt)
         XCTAssertEqual(result.item.publication?.id, result.publication.id)

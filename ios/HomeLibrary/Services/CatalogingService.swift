@@ -22,6 +22,8 @@ struct CatalogingSaveRequest {
     let issueVolume: String
     let issueDate: String
     let metadataSource: String
+    let coverURLString: String
+    let coverSource: String
     let locationPathText: String
     let notes: String
     let savedAt: Date
@@ -42,6 +44,8 @@ struct CatalogingSaveRequest {
         issueVolume: String = "",
         issueDate: String = "",
         metadataSource: String = "manual",
+        coverURLString: String = "",
+        coverSource: String = "",
         locationPathText: String = "",
         notes: String = "",
         savedAt: Date = .now
@@ -61,6 +65,8 @@ struct CatalogingSaveRequest {
         self.issueVolume = issueVolume
         self.issueDate = issueDate
         self.metadataSource = metadataSource
+        self.coverURLString = coverURLString
+        self.coverSource = coverSource
         self.locationPathText = locationPathText
         self.notes = notes
         self.savedAt = savedAt
@@ -102,11 +108,15 @@ struct CatalogingService {
         )
 
         let publication: Publication
-        let insertedPublication: Publication?
 
         if let match {
             publication = match.publication
-            insertedPublication = nil
+            if publication.coverURLString.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+               !request.coverURLString.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                publication.coverURLString = request.coverURLString
+                publication.coverSource = request.coverSource
+                publication.updatedAt = request.savedAt
+            }
         } else {
             let newPublication = Publication(
                 type: request.type,
@@ -124,12 +134,13 @@ struct CatalogingService {
                 issueVolume: request.issueVolume,
                 issueDate: request.issueDate,
                 metadataSource: request.metadataSource,
+                coverURLString: request.coverURLString,
+                coverSource: request.coverSource,
                 createdAt: request.savedAt,
                 updatedAt: request.savedAt
             )
             modelContext.insert(newPublication)
             publication = newPublication
-            insertedPublication = newPublication
         }
 
         let item = OwnedItem(
@@ -144,10 +155,7 @@ struct CatalogingService {
         do {
             try modelContext.save()
         } catch {
-            modelContext.delete(item)
-            if let insertedPublication {
-                modelContext.delete(insertedPublication)
-            }
+            modelContext.rollback()
             throw error
         }
 

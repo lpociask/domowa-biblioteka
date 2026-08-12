@@ -95,6 +95,50 @@ final class CatalogItemEditingServiceTests: XCTestCase {
         XCTAssertEqual(result.after.draft.item.locationPathText, "Salon / Regał A / Półka 1")
     }
 
+    func testChangingEditionIdentityClearsOldCoverAndUndoRestoresIt() throws {
+        let context = try makeContext()
+        let baseline = Date(timeIntervalSince1970: 1_700_000_000)
+        let editedAt = Date(timeIntervalSince1970: 1_710_000_000)
+        let publication = Publication(
+            type: .book,
+            title: "Solaris",
+            isbn13: "9788308068854",
+            coverURLString: "https://covers.openlibrary.org/b/isbn/9788308068854-M.jpg?default=false",
+            coverSource: "openlibrary",
+            createdAt: baseline,
+            updatedAt: baseline
+        )
+        let item = OwnedItem(
+            publication: publication,
+            locationPathText: "Gabinet",
+            addedAt: baseline,
+            updatedAt: baseline
+        )
+        context.insert(publication)
+        context.insert(item)
+        try context.save()
+
+        let service = CatalogItemEditingService(modelContext: context)
+        let prepared = try service.prepare(itemID: item.id)
+        var draft = prepared.draft
+        draft.publication.isbn13 = "9788308084526"
+
+        let edit = try service.edit(prepared, draft: draft, editedAt: editedAt)
+
+        XCTAssertEqual(publication.isbn13, "9788308084526")
+        XCTAssertEqual(publication.coverURLString, "")
+        XCTAssertEqual(publication.coverSource, "")
+
+        _ = try service.undo(edit)
+
+        XCTAssertEqual(publication.isbn13, "9788308068854")
+        XCTAssertEqual(
+            publication.coverURLString,
+            "https://covers.openlibrary.org/b/isbn/9788308068854-M.jpg?default=false"
+        )
+        XCTAssertEqual(publication.coverSource, "openlibrary")
+    }
+
     func testUndoRestoresExactBeforeStateAndReturnedUndoCanRedo() throws {
         let context = try makeContext()
         let baseline = Date(timeIntervalSince1970: 1_700_000_000)
@@ -474,6 +518,12 @@ final class CatalogItemEditingServiceTests: XCTestCase {
         draft.publication.issn = "2049-3631"
         XCTAssertThrowsError(try service.edit(prepared, draft: draft)) { error in
             XCTAssertEqual(error as? CatalogItemEditingError, .invalidISSN)
+        }
+
+        draft = prepared.draft
+        draft.publication.coverURLString = "http://covers.openlibrary.org/b/id/123-M.jpg"
+        XCTAssertThrowsError(try service.edit(prepared, draft: draft)) { error in
+            XCTAssertEqual(error as? CatalogItemEditingError, .invalidCoverURL)
         }
 
         XCTAssertEqual(publication.title, "Solaris")

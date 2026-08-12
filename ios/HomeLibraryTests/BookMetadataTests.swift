@@ -12,7 +12,7 @@ final class BookMetadataTests: XCTestCase {
         let primaryCalls = await primary.callCount
         let fallbackCalls = await fallback.callCount
 
-        XCTAssertEqual(result, Self.bnMetadata)
+        XCTAssertEqual(result, Self.bnMetadata.addingFallbackCover(forISBN: "9780306406157"))
         XCTAssertEqual(primaryCalls, 1)
         XCTAssertEqual(fallbackCalls, 0)
     }
@@ -26,7 +26,7 @@ final class BookMetadataTests: XCTestCase {
         let primaryCalls = await primary.callCount
         let fallbackCalls = await fallback.callCount
 
-        XCTAssertEqual(result, Self.openLibraryMetadata)
+        XCTAssertEqual(result, Self.openLibraryMetadata.addingFallbackCover(forISBN: "9780306406157"))
         XCTAssertEqual(primaryCalls, 1)
         XCTAssertEqual(fallbackCalls, 1)
     }
@@ -40,7 +40,7 @@ final class BookMetadataTests: XCTestCase {
         let primaryCalls = await primary.callCount
         let fallbackCalls = await fallback.callCount
 
-        XCTAssertEqual(result, Self.openLibraryMetadata)
+        XCTAssertEqual(result, Self.openLibraryMetadata.addingFallbackCover(forISBN: "9780306406157"))
         XCTAssertEqual(primaryCalls, 1)
         XCTAssertEqual(fallbackCalls, 1)
     }
@@ -68,7 +68,7 @@ final class BookMetadataTests: XCTestCase {
         let primaryCalls = await primary.callCount
         let fallbackCalls = await fallback.callCount
 
-        XCTAssertEqual(result, Self.openLibraryMetadata)
+        XCTAssertEqual(result, Self.openLibraryMetadata.addingFallbackCover(forISBN: "9780306406157"))
         XCTAssertEqual(primaryCalls, 1)
         XCTAssertEqual(fallbackCalls, 1)
     }
@@ -186,6 +186,80 @@ final class BookMetadataTests: XCTestCase {
         let fallbackCalls = await fallback.callCount
         XCTAssertEqual(primaryCalls, 1)
         XCTAssertEqual(fallbackCalls, 0)
+    }
+
+    func testOpenLibraryCoverURLUsesNormalizedISBNMediumSizeAndExplicit404() throws {
+        let url = try XCTUnwrap(OpenLibraryCoverURL.url(forISBN: "0-306-40615-2"))
+
+        XCTAssertEqual(url.scheme, "https")
+        XCTAssertEqual(url.host, "covers.openlibrary.org")
+        XCTAssertEqual(url.path, "/b/isbn/9780306406157-M.jpg")
+        XCTAssertEqual(URLComponents(url: url, resolvingAgainstBaseURL: false)?
+            .queryItems?.first(where: { $0.name == "default" })?.value, "false")
+        XCTAssertNil(OpenLibraryCoverURL.url(forISBN: "9780306406158"))
+    }
+
+    func testRemoteCoverPolicyPreservesHTTPSReferencesButOnlyAutoLoadsTrustedDefaultPort() throws {
+        let trusted = try XCTUnwrap(RemoteCoverURLPolicy.validatedReference(
+            "HTTPS://covers.openlibrary.org/b/id/123-M.jpg"
+        ))
+        XCTAssertTrue(RemoteCoverURLPolicy.canLoadAutomatically(trusted))
+
+        let trusted443 = try XCTUnwrap(RemoteCoverURLPolicy.validatedReference(
+            "https://covers.openlibrary.org:443/b/id/123-M.jpg"
+        ))
+        XCTAssertTrue(RemoteCoverURLPolicy.canLoadAutomatically(trusted443))
+
+        let customPort = try XCTUnwrap(RemoteCoverURLPolicy.validatedReference(
+            "https://covers.openlibrary.org:444/b/id/123-M.jpg"
+        ))
+        XCTAssertFalse(RemoteCoverURLPolicy.canLoadAutomatically(customPort))
+
+        let foreignHost = try XCTUnwrap(RemoteCoverURLPolicy.validatedReference(
+            "https://example.com/cover.jpg"
+        ))
+        XCTAssertFalse(RemoteCoverURLPolicy.canLoadAutomatically(foreignHost))
+    }
+
+    func testRemoteCoverPolicyRejectsCredentialsUnicodeWhitespaceAndByteOverflow() {
+        for rejected in [
+            "https://user:secret@covers.openlibrary.org/b/id/123-M.jpg",
+            "https://covers.openlibrary.org/okładka.jpg",
+            "https://covers.openlibrary.org/cover name.jpg",
+            "https://covers.openlibrary.org/\(String(repeating: "a", count: 2_049))",
+            "https://example.com/\(String(repeating: "<", count: 700))"
+        ] {
+            XCTAssertNil(RemoteCoverURLPolicy.validatedReference(rejected), rejected)
+        }
+    }
+
+    func testPublicationPreservesForeignCoverForExportButNeverAutoLoadsIt() throws {
+        let publication = Publication(
+            type: .book,
+            title: "Test",
+            isbn13: "9780306406157",
+            coverURLString: "https://cdn.example.org/cover.jpg",
+            coverSource: "import"
+        )
+
+        XCTAssertEqual(
+            publication.resolvedCoverURL,
+            OpenLibraryCoverURL.url(forISBN: "9780306406157")
+        )
+        XCTAssertEqual(publication.resolvedCoverSource, BookMetadataSource.openLibrary.rawValue)
+        XCTAssertEqual(publication.exportCoverURL?.absoluteString, "https://cdn.example.org/cover.jpg")
+        XCTAssertEqual(publication.exportCoverSource, "import")
+
+        publication.isbn13 = ""
+        XCTAssertNil(publication.resolvedCoverURL)
+        XCTAssertEqual(publication.exportCoverURL?.absoluteString, "https://cdn.example.org/cover.jpg")
+
+        publication.coverURLString = "https://covers.openlibrary.org:444/b/id/123-M.jpg"
+        XCTAssertNil(publication.resolvedCoverURL)
+        XCTAssertEqual(
+            publication.exportCoverURL?.absoluteString,
+            "https://covers.openlibrary.org:444/b/id/123-M.jpg"
+        )
     }
 }
 

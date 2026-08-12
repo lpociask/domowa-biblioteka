@@ -19,6 +19,8 @@ struct PublicationEditDraft: Equatable {
     var issueVolume: String
     var issueDate: String
     var metadataSource: String
+    var coverURLString: String
+    var coverSource: String
 }
 
 /// Editable values belonging to one physical copy only.
@@ -74,6 +76,7 @@ enum CatalogItemEditingError: Error, Equatable, LocalizedError {
     case invalidISBN
     case invalidISSN
     case invalidEAN
+    case invalidCoverURL
     case publicationIdentityConflict(UUID)
 
     var errorDescription: String? {
@@ -96,6 +99,8 @@ enum CatalogItemEditingError: Error, Equatable, LocalizedError {
             "ISSN ma nieprawidłową długość lub cyfrę kontrolną."
         case .invalidEAN:
             "EAN-13 ma nieprawidłową cyfrę kontrolną."
+        case .invalidCoverURL:
+            "Adres okładki musi być poprawnym adresem HTTPS."
         case .publicationIdentityConflict:
             "Inny opis publikacji ma już ten sam identyfikator lub numer wydania."
         }
@@ -378,6 +383,19 @@ struct CatalogItemEditingService {
         if draft.issueVolume != baseline.issueVolume { normalized.issueVolume = clean(draft.issueVolume) }
         if draft.issueDate != baseline.issueDate { normalized.issueDate = clean(draft.issueDate) }
         if draft.metadataSource != baseline.metadataSource { normalized.metadataSource = clean(draft.metadataSource) }
+        if draft.coverSource != baseline.coverSource { normalized.coverSource = clean(draft.coverSource) }
+
+        if draft.coverURLString != baseline.coverURLString {
+            let value = clean(draft.coverURLString)
+            if value.isEmpty {
+                normalized.coverURLString = ""
+                normalized.coverSource = ""
+            } else if let url = RemoteCoverURLPolicy.validatedReference(value) {
+                normalized.coverURLString = url.absoluteString
+            } else {
+                throw CatalogItemEditingError.invalidCoverURL
+            }
+        }
 
         if draft.publicationYear != baseline.publicationYear {
             if let year = draft.publicationYear, !(1...9999).contains(year) {
@@ -421,6 +439,13 @@ struct CatalogItemEditingService {
             } else {
                 throw CatalogItemEditingError.invalidISSN
             }
+        }
+
+        if identityChanged(from: baseline, to: normalized),
+           draft.coverURLString == baseline.coverURLString,
+           draft.coverSource == baseline.coverSource {
+            normalized.coverURLString = ""
+            normalized.coverSource = ""
         }
         return normalized
     }
@@ -582,7 +607,9 @@ struct CatalogItemEditingService {
             issueNumber: publication.issueNumber,
             issueVolume: publication.issueVolume,
             issueDate: publication.issueDate,
-            metadataSource: publication.metadataSource
+            metadataSource: publication.metadataSource,
+            coverURLString: publication.coverURLString,
+            coverSource: publication.coverSource
         )
     }
 
@@ -602,6 +629,8 @@ struct CatalogItemEditingService {
         publication.issueVolume = draft.issueVolume
         publication.issueDate = draft.issueDate
         publication.metadataSource = draft.metadataSource
+        publication.coverURLString = draft.coverURLString
+        publication.coverSource = draft.coverSource
     }
 
     private static func apply(_ draft: OwnedItemEditDraft, to item: OwnedItem) {

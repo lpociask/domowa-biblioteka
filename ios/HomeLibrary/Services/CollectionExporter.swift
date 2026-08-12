@@ -55,6 +55,8 @@ struct ExportIssue: Codable {
 
 struct ExportMetadata: Codable {
     let source: String
+    let coverUrl: String?
+    let coverSource: String?
 }
 
 struct ExportOwnedItem: Codable {
@@ -143,7 +145,11 @@ enum CollectionExporter {
                 barcode: nilIfEmpty(publication.barcode)
             ),
             issue: issue,
-            metadata: ExportMetadata(source: publication.metadataSource),
+            metadata: ExportMetadata(
+                source: publication.metadataSource,
+                coverUrl: publication.exportCoverURL?.absoluteString,
+                coverSource: publication.exportCoverSource
+            ),
             createdAt: publication.createdAt,
             updatedAt: publication.updatedAt
         )

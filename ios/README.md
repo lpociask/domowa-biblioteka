@@ -12,7 +12,8 @@ Natywny vertical slice dla iOS 17+, bez zewnętrznych zależności. Dane są prz
 - lokalizacja jako ścieżka, np. `Dom / Gabinet / Regał A / Półka 2`,
 - osobne modele `Publication` i `OwnedItem`,
 - import i eksport wspólnego formatu JSON v1 używanego przez stronę WWW,
-- uzupełnianie książki po ISBN w kaskadzie Biblioteka Narodowa → Open Library.
+- uzupełnianie książki po ISBN w kaskadzie Biblioteka Narodowa → Open Library,
+- okładki Open Library oraz trwałe, odbudowywalne cache metadanych i obrazów.
 
 ## Kody prasy 977
 
@@ -27,8 +28,9 @@ Po zeskanowaniu lub zatwierdzeniu prawidłowego ISBN-13 w ręcznym fallbacku ska
 - Pierwszy użyteczny wynik uzupełnia tytuł, podtytuł, autorów, wydawcę, rok i język.
 - Formularz pozostaje edytowalny podczas zapytania; wpisane w tym czasie wartości nie są nadpisywane.
 - Brak wyniku lub awaria obu katalogów nie blokuje ręcznego zapisu.
-- Open Library jest przeznaczone wyłącznie do wywołań low-volume inicjowanych przez użytkownika. Żądania korzystają z cache HTTP `returnCacheDataElseLoad`; nie ma pobierania wsadowego ani trwałego cache'u metadanych.
+- Open Library jest przeznaczone wyłącznie do wywołań low-volume inicjowanych przez użytkownika. Jawny cache metadanych przechowuje trafienia 30 dni, brak rekordu 24 godziny i może awaryjnie użyć starego trafienia do roku. Nie ma pobierania wsadowego.
 - W rekordzie zostaje zapisane źródło zaakceptowanych danych: `bn` albo `openlibrary`.
+- Adres okładki i jej źródło są przenośne w eksporcie, natomiast przetworzony obraz pozostaje w osobnym lokalnym cache, wyłączonym z kopii zapasowej. Lista nie rozpoczyna pobierania okładek podczas przewijania.
 
 Do katalogów trafia tylko znormalizowany ISBN. Lokalizacja egzemplarza, notatki i pozostała kolekcja nie są częścią żądania.
 

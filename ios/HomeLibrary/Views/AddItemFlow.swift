@@ -24,6 +24,8 @@ struct AddItemFlow: View {
         let publisher: String
         let publicationYear: String
         let language: String
+        let coverURLString: String
+        let coverSource: String
     }
 
     private struct RecentSaveNotice: Equatable {
@@ -34,6 +36,7 @@ struct AddItemFlow: View {
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Query(sort: \OwnedItem.addedAt, order: .reverse) private var existingItems: [OwnedItem]
 
     @State private var step: Step
@@ -54,6 +57,8 @@ struct AddItemFlow: View {
     @State private var catalogingSession = CatalogingSession()
     @State private var notes = ""
     @State private var metadataSource = "manual"
+    @State private var coverURLString = ""
+    @State private var coverSource = ""
     @State private var validationMessage: String?
     @State private var metadataLookupState: MetadataLookupState = .idle
     @State private var metadataLookupTask: Task<Void, Never>?
@@ -72,7 +77,7 @@ struct AddItemFlow: View {
 
     init(
         startWithScanner: Bool,
-        metadataProvider: any BookMetadataProviding = CascadingBookMetadataProvider(),
+        metadataProvider: any BookMetadataProviding = DefaultBookMetadataProvider(),
         onMutation: (() -> Void)? = nil
     ) {
         _step = State(initialValue: startWithScanner ? .scanner : .form)
@@ -101,11 +106,19 @@ struct AddItemFlow: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button(step == .saved ? "Gotowe" : "Anuluj") {
+                    Button {
                         dismiss()
+                    } label: {
+                        if dynamicTypeSize.isAccessibilitySize {
+                            Image(systemName: "xmark")
+                                .font(.headline)
+                        } else {
+                            Text(step == .saved ? "Gotowe" : "Anuluj")
+                        }
                     }
                     .foregroundStyle(LibraryPalette.ink)
                     .frame(minWidth: 44, minHeight: 44)
+                    .accessibilityLabel(step == .saved ? "Gotowe" : "Anuluj")
                 }
             }
         }
@@ -148,11 +161,21 @@ struct AddItemFlow: View {
                 LibraryMasthead(
                     title: metadataSource == "manual" ? "Nowa publikacja" : "Sprawdź publikację",
                     eyebrow: "KATALOGOWANIE · 02/03",
-                    subtitle: "Najpierw opis, potem miejsce na półce. Dane z katalogu zawsze możesz poprawić.",
+                    subtitle: isManualEntryIdle ? nil : "Sprawdź opis, potem zapisz miejsce na półce.",
                     compact: true
                 )
 
-                metadataStatus
+                if isManualEntryIdle {
+                    EditorialActionRow(
+                        title: "Zeskanuj kod zamiast wpisywać",
+                        detail: "Kod ISBN z tylnej okładki przyspieszy uzupełnianie opisu.",
+                        icon: "barcode.viewfinder",
+                        accent: LibraryPalette.orangeText,
+                        action: startRescan
+                    )
+                } else {
+                    metadataStatus
+                }
 
                 if let duplicateMatch {
                     EditorialStatusBand(
@@ -170,6 +193,9 @@ struct AddItemFlow: View {
                 } else {
                     mainDataSection
                 }
+
+                coverPreviewSection
+
                 locationSection
 
                 if duplicateMatch == nil, publicationType == .periodical {
@@ -192,7 +218,7 @@ struct AddItemFlow: View {
 
     private var mainDataSection: some View {
         VStack(alignment: .leading, spacing: LibrarySpacing.medium) {
-            EditorialSectionHeader(title: "Najważniejsze dane", value: "01")
+            EditorialSectionHeader(title: "Opis publikacji", value: "01")
 
             EditorialLabeledTextField(
                 label: "Tytuł publikacji",
@@ -215,6 +241,12 @@ struct AddItemFlow: View {
                 }
             )
         }
+    }
+
+    private var isManualEntryIdle: Bool {
+        metadataLookupState == .idle &&
+            barcode.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+            isbn13.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     private func existingPublicationSection(_ match: ExistingPublicationMatch) -> some View {
@@ -461,11 +493,17 @@ struct AddItemFlow: View {
                 .fill(LibraryPalette.rule)
                 .frame(height: 1)
 
-            EditorialPrimaryButton(
-                title: saveButtonTitle,
-                isLoading: isSaving
-            ) {
-                save()
+            Group {
+                if dynamicTypeSize.isAccessibilitySize {
+                    accessibilitySaveButton
+                } else {
+                    EditorialPrimaryButton(
+                        title: saveButtonTitle,
+                        isLoading: isSaving
+                    ) {
+                        save()
+                    }
+                }
             }
             .disabled(!canSave || isSaving)
             .opacity(canSave && !isSaving ? 1 : 0.5)
@@ -473,6 +511,37 @@ struct AddItemFlow: View {
             .editorialPage(width: 760)
         }
         .background(LibraryPalette.paper)
+    }
+
+    private var accessibilitySaveButton: some View {
+        Button(action: save) {
+            HStack(spacing: LibrarySpacing.small) {
+                Text(isSaving ? "Zapisywanie…" : "Zapisz")
+                    .font(.headline.weight(.bold))
+                    .lineLimit(1)
+
+                Spacer(minLength: LibrarySpacing.small)
+
+                if isSaving {
+                    ProgressView()
+                        .tint(.white)
+                        .accessibilityHidden(true)
+                } else {
+                    Image(systemName: "checkmark")
+                        .font(.headline)
+                        .accessibilityHidden(true)
+                }
+            }
+            .foregroundStyle(.white)
+            .padding(.horizontal, LibrarySpacing.medium)
+            .frame(maxWidth: .infinity, minHeight: 56)
+            .background(LibraryPalette.orangeAction)
+            .clipShape(RoundedRectangle(cornerRadius: LibraryRadius.small))
+            .contentShape(RoundedRectangle(cornerRadius: LibraryRadius.small))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(saveButtonTitle)
+        .accessibilityValue(isSaving ? "Trwa" : "")
     }
 
     private var savedConfirmation: some View {
@@ -589,6 +658,54 @@ struct AddItemFlow: View {
                 retryAndRescanActions
             }
         }
+    }
+
+    @ViewBuilder
+    private var coverPreviewSection: some View {
+        if let coverURL = previewCoverURL {
+            VStack(alignment: .leading, spacing: LibrarySpacing.medium) {
+                EditorialSectionHeader(title: "Okładka", value: "PODGLĄD")
+
+                PublicationCoverView(
+                    url: coverURL,
+                    title: previewCoverTitle,
+                    source: previewCoverSource,
+                    mode: .lookup
+                )
+                .frame(maxWidth: .infinity, alignment: .center)
+            }
+        }
+    }
+
+    private var previewCoverURL: URL? {
+        if let publication = duplicateMatch?.publication {
+            return publication.resolvedCoverURL
+        }
+
+        if let explicitURL = RemoteCoverURLPolicy.validatedReference(coverURLString),
+           RemoteCoverURLPolicy.canLoadAutomatically(explicitURL) {
+            return explicitURL
+        }
+        return OpenLibraryCoverURL.url(forISBN: isbn13)
+    }
+
+    private var previewCoverTitle: String {
+        if let publication = duplicateMatch?.publication {
+            return publication.title
+        }
+        let clean = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        return clean.isEmpty ? "publikacja bez tytułu" : clean
+    }
+
+    private var previewCoverSource: String? {
+        if let publication = duplicateMatch?.publication {
+            return publication.resolvedCoverSource
+        }
+        return previewCoverURL == nil
+            ? nil
+            : (coverSource.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                ? BookMetadataSource.openLibrary.rawValue
+                : coverSource)
     }
 
     private var retryAndRescanActions: some View {
@@ -768,6 +885,8 @@ struct AddItemFlow: View {
         issueVolume = ""
         issueDate = ""
         metadataSource = "manual"
+        coverURLString = ""
+        coverSource = ""
         validationMessage = nil
         showsMoreData = false
 
@@ -822,7 +941,9 @@ struct AddItemFlow: View {
             authors: authors,
             publisher: publisher,
             publicationYear: publicationYear,
-            language: language
+            language: language,
+            coverURLString: coverURLString,
+            coverSource: coverSource
         )
 
         metadataLookupTask = Task {
@@ -868,6 +989,10 @@ struct AddItemFlow: View {
             metadataSource == BookMetadataSource.openLibrary.rawValue {
             metadataSource = "manual"
         }
+        if coverSource == BookMetadataSource.openLibrary.rawValue {
+            coverURLString = ""
+            coverSource = ""
+        }
     }
 
     private func normalizedISBN(_ value: String) -> String? {
@@ -897,6 +1022,12 @@ struct AddItemFlow: View {
         }
         if language == snapshot.language, let value = metadata.language {
             language = value
+        }
+        if coverURLString == snapshot.coverURLString,
+           coverSource == snapshot.coverSource,
+           let value = metadata.coverURL {
+            coverURLString = value.absoluteString
+            coverSource = metadata.coverSource?.rawValue ?? ""
         }
     }
 
@@ -970,6 +1101,8 @@ struct AddItemFlow: View {
             issueVolume: issueVolume.trimmingCharacters(in: .whitespacesAndNewlines),
             issueDate: issueDate.trimmingCharacters(in: .whitespacesAndNewlines),
             metadataSource: metadataSource,
+            coverURLString: coverURLString,
+            coverSource: coverSource,
             locationPathText: catalogingSession.locationText,
             notes: notes.trimmingCharacters(in: .whitespacesAndNewlines),
             savedAt: now

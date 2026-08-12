@@ -1,6 +1,6 @@
 import Foundation
 
-enum BookMetadataSource: String, Equatable, Sendable {
+enum BookMetadataSource: String, Codable, Equatable, Sendable {
     case nationalLibrary = "bn"
     case openLibrary = "openlibrary"
 
@@ -14,7 +14,7 @@ enum BookMetadataSource: String, Equatable, Sendable {
     }
 }
 
-struct BookMetadata: Equatable, Sendable {
+struct BookMetadata: Codable, Equatable, Sendable {
     let source: BookMetadataSource
     let title: String?
     let subtitle: String?
@@ -22,6 +22,30 @@ struct BookMetadata: Equatable, Sendable {
     let publisher: String?
     let publicationYear: Int?
     let language: String?
+    let coverURL: URL?
+    let coverSource: BookMetadataSource?
+
+    init(
+        source: BookMetadataSource,
+        title: String?,
+        subtitle: String?,
+        authors: [String],
+        publisher: String?,
+        publicationYear: Int?,
+        language: String?,
+        coverURL: URL? = nil,
+        coverSource: BookMetadataSource? = nil
+    ) {
+        self.source = source
+        self.title = title
+        self.subtitle = subtitle
+        self.authors = authors
+        self.publisher = publisher
+        self.publicationYear = publicationYear
+        self.language = language
+        self.coverURL = coverURL
+        self.coverSource = coverSource
+    }
 
     var hasUsefulData: Bool {
         title != nil ||
@@ -30,6 +54,83 @@ struct BookMetadata: Equatable, Sendable {
             publisher != nil ||
             publicationYear != nil ||
             language != nil
+    }
+
+    func addingFallbackCover(forISBN isbn13: String) -> BookMetadata {
+        guard coverURL == nil,
+              let fallbackURL = OpenLibraryCoverURL.url(forISBN: isbn13) else {
+            return self
+        }
+
+        return BookMetadata(
+            source: source,
+            title: title,
+            subtitle: subtitle,
+            authors: authors,
+            publisher: publisher,
+            publicationYear: publicationYear,
+            language: language,
+            coverURL: fallbackURL,
+            coverSource: .openLibrary
+        )
+    }
+}
+
+enum OpenLibraryCoverSize: String, Sendable {
+    case small = "S"
+    case medium = "M"
+    case large = "L"
+}
+
+/// Builds the documented Open Library Covers API URL. `default=false` makes a
+/// missing cover an explicit HTTP 404, which the persistent image cache can
+/// remember instead of storing Open Library's blank placeholder image.
+enum OpenLibraryCoverURL {
+    static func url(
+        forISBN rawISBN: String,
+        size: OpenLibraryCoverSize = .medium
+    ) -> URL? {
+        let parsed = PublicationIdentifierParser.parse(rawISBN)
+        guard parsed.isValid,
+              parsed.kind == .isbn10 || parsed.kind == .isbn13,
+              let isbn13 = parsed.isbn13,
+              var components = URLComponents(string: "https://covers.openlibrary.org") else {
+            return nil
+        }
+
+        components.path = "/b/isbn/\(isbn13)-\(size.rawValue).jpg"
+        components.queryItems = [URLQueryItem(name: "default", value: "false")]
+        return components.url
+    }
+}
+
+enum RemoteCoverURLPolicy {
+    static func validatedReference(_ value: String) -> URL? {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty,
+              trimmed.utf8.count <= 2_048,
+              trimmed.unicodeScalars.allSatisfy({ (0x21...0x7E).contains($0.value) }),
+              let components = URLComponents(string: trimmed),
+              components.scheme?.lowercased() == "https",
+              components.host != nil,
+              components.user == nil,
+              components.password == nil,
+              let normalizedURL = components.url,
+              normalizedURL.absoluteString.utf8.count <= 2_048,
+              normalizedURL.absoluteString.unicodeScalars.allSatisfy({
+                  (0x21...0x7E).contains($0.value)
+              }) else {
+            return nil
+        }
+        return normalizedURL
+    }
+
+    static func canLoadAutomatically(_ url: URL) -> Bool {
+        url.scheme?.lowercased() == "https" &&
+            url.host?.lowercased() == "covers.openlibrary.org" &&
+            url.user == nil &&
+            url.password == nil &&
+            (url.port == nil || url.port == 443)
     }
 }
 
@@ -79,7 +180,7 @@ struct CascadingBookMetadataProvider: BookMetadataProviding {
                 let metadata = try await provider.lookup(isbn: isbn13)
                 try Task.checkCancellation()
                 if let metadata, metadata.hasUsefulData {
-                    return metadata
+                    return metadata.addingFallbackCover(forISBN: isbn13)
                 }
             } catch is CancellationError {
                 throw CancellationError()
