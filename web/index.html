@@ -5,264 +5,99 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self'; img-src 'self' https://covers.openlibrary.org; script-src 'self'; style-src 'self' 'unsafe-inline'; object-src 'none'; base-uri 'self'; form-action 'self'"
+      content="default-src 'self'; img-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; object-src 'none'; base-uri 'self'; form-action 'self'"
     />
-    <meta name="theme-color" content="#f4eddf" />
+    <meta name="theme-color" content="#faf4f7" />
     <meta
       name="description"
-      content="Półka — prywatny katalog książek i prasy. Wyszukuj publikacje i sprawdzaj, gdzie leżą."
+      content="Półka — skaner ISBN na iPhone’a i prywatny katalog książek oraz prasy."
     />
-    <title>Półka — katalog publikacji</title>
+    <title>Półka — skaner książek i domowy katalog</title>
     <meta name="application-name" content="Półka" />
     <meta name="apple-mobile-web-app-title" content="Półka" />
     <link rel="icon" type="image/png" sizes="32x32" href="./assets/app-icon-32.png" />
     <link rel="apple-touch-icon" sizes="180x180" href="./assets/apple-touch-icon.png" />
     <link rel="manifest" href="./manifest.webmanifest" />
     <link rel="stylesheet" href="./styles.css" />
-    <script type="module" src="./app.js"></script>
   </head>
   <body>
-    <a class="skip-link" href="#main-content">Przejdź do katalogu</a>
+    <a class="skip-link" href="#scanner-title">Przejdź do opisu aplikacji</a>
 
-    <header class="site-header">
-      <a class="brand" href="./" aria-label="Półka — strona główna">
-        <img class="brand-mark" src="./assets/app-icon-192.png" width="38" height="38" alt="" />
-        <span>Półka</span>
-      </a>
+    <main>
+      <div class="scanner-landing">
+        <header class="scanner-header scanner-shell">
+          <a class="scanner-brand" href="./" aria-label="Półka — strona główna">
+            <img src="./assets/app-icon-192.png" width="56" height="56" alt="" />
+            Półka
+          </a>
+          <nav aria-label="O aplikacji">
+            <a href="#jak-dziala">Jak to działa</a>
+            <a href="#ekrany">Ekrany aplikacji</a>
+            <a href="#klips">Poznaj Klipsa</a>
+          </nav>
+        </header>
 
-      <div class="header-actions" aria-label="Operacje na kolekcji">
-        <span class="local-status" title="Dane są zapisane tylko w tej przeglądarce">
-          <span class="status-dot" aria-hidden="true"></span>
-          <span class="local-status-wide">Lokalnie w przeglądarce</span>
-          <span class="local-status-short">Lokalnie</span>
-        </span>
-        <button class="button button-secondary header-button" id="export-button" type="button" aria-label="Eksportuj kolekcję do JSON">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 15v4h14v-4" /></svg>
-          <span>Eksportuj</span>
-        </button>
-        <button class="button button-primary header-button" id="import-button" type="button" aria-label="Importuj kolekcję z JSON">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15V3m0 0 4 4m-4-4L8 7M5 10v9h14v-9" /></svg>
-          <span>Importuj JSON</span>
-        </button>
-        <input id="file-input" type="file" accept=".json,application/json" hidden />
-      </div>
-    </header>
-
-    <aside class="pages-notice" aria-label="Informacja o zapisie danych">
-      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8v4m0 4h.01M10.3 4.9 3.6 17a2 2 0 0 0 1.8 3h13.2a2 2 0 0 0 1.8-3L13.7 4.9a2 2 0 0 0-3.4 0Z" /></svg>
-      <p>
-        <strong>GitHub Pages nie jest serwerem synchronizacji.</strong>
-        Import zapisuje kolekcję tylko na tym urządzeniu. Plik JSON możesz przenosić w obie strony między iPhone’em i WWW albo zachować jako kopię zapasową.
-      </p>
-    </aside>
-
-    <main id="main-content">
-      <section class="collection-hero" aria-labelledby="collection-title">
-        <div class="hero-copy">
-          <p class="eyebrow" id="collection-eyebrow">Kolekcja · 00</p>
-          <div class="masthead-title">
-            <h1 id="collection-title">Kolekcja demonstracyjna</h1>
-            <span class="masthead-dot" aria-hidden="true"></span>
+        <section class="scanner-hero scanner-shell" aria-labelledby="scanner-title">
+          <div class="scanner-copy">
+            <h1 id="scanner-title" tabindex="-1">Zeskanuj.<br />Zapisz.<br /><em>Znajdź.</em></h1>
+            <p>Skanuj ISBN i sprawdzaj, gdzie leżą Twoje książki.</p>
+            <a class="scanner-cta" href="#jak-dziala">Zobacz, jak działa <span aria-hidden="true">→</span></a>
           </div>
-          <p class="hero-description">
-            Książki i prasa w jednym miejscu. Znajdź publikację, sprawdź konkretny egzemplarz i od razu zobacz, gdzie go odłożyłeś.
-          </p>
-        </div>
+          <div class="scanner-visual">
+            <img class="scanner-phone" src="./assets/skaner-isbn.webp" width="680" height="1376" alt="Makieta skanera Półki na iPhonie. Aparat rozpoznaje kod ISBN z tylnej okładki książki." fetchpriority="high" />
+            <img class="scanner-mascot" src="./assets/klips.webp" width="820" height="1007" alt="Klips, mosiężna zakładka z zielonym chwostem, wskazuje kod kreskowy na książce." />
+          </div>
+        </section>
 
-        <div class="hero-summary">
-          <dl class="stats" aria-label="Podsumowanie kolekcji">
-            <div class="stat stat-primary">
-              <dt>Egz.</dt>
-              <dd id="stat-total">—</dd>
-            </div>
-            <div class="stat">
-              <dt>Książek</dt>
-              <dd id="stat-books">—</dd>
-            </div>
-            <div class="stat">
-              <dt>Prasy</dt>
-              <dd id="stat-press">—</dd>
-            </div>
-            <div class="stat">
-              <dt>Bez lok.</dt>
-              <dd id="stat-unlocated">—</dd>
-            </div>
-          </dl>
-          <button class="button button-primary hero-import-button" id="hero-import-button" type="button">
-            Importuj kolekcję
-          </button>
-        </div>
-      </section>
-
-      <section class="catalog" aria-labelledby="catalog-heading">
-        <div class="section-heading">
+        <section class="scanner-guide scanner-shell" id="jak-dziala" aria-labelledby="scanner-guide-title">
           <div>
-            <p class="eyebrow">Katalog</p>
-            <h2 id="catalog-heading">Co masz na półkach</h2>
+            <h2 id="scanner-guide-title">Od kodu do <em>katalogu.</em></h2>
+            <ol class="scanner-steps">
+              <li><strong>Zeskanuj ISBN</strong><p>W aplikacji na iPhonie skieruj aparat na kod z tylnej okładki.</p></li>
+              <li><strong>Zapisz egzemplarz</strong><p>Sprawdź podpowiedziane dane i wybierz miejsce, w którym odłożysz książkę.</p></li>
+              <li><strong>Znajdź na półce</strong><p>Wyszukaj tytuł w katalogu, żeby sprawdzić lokalizację egzemplarza.</p></li>
+            </ol>
           </div>
-          <button class="text-button" id="reset-button" type="button">Przywróć dane przykładowe</button>
-        </div>
+          <aside class="scanner-tip" id="klips" aria-labelledby="klips-title">
+            <h3 id="klips-title">Poznaj Klipsa</h3>
+            <p>„Odwróć książkę. Kod ISBN zwykle znajdziesz na dole tylnej okładki.”</p>
+          </aside>
+        </section>
 
-        <div class="catalog-mode-switch" role="tablist" aria-label="Widok kolekcji">
-          <button
-            class="catalog-mode-button is-active"
-            id="catalog-tab"
-            type="button"
-            role="tab"
-            aria-selected="true"
-            aria-controls="catalog-panel"
-          >Katalog</button>
-          <button
-            class="catalog-mode-button"
-            id="periodicals-tab"
-            type="button"
-            role="tab"
-            aria-selected="false"
-            aria-controls="periodicals-panel"
-          >Serie prasy</button>
-        </div>
-
-        <div id="catalog-panel" role="tabpanel" aria-labelledby="catalog-tab">
-          <div class="catalog-toolbar">
-          <div class="search-field">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5" /><path d="m16 16 4 4" /></svg>
-            <label class="sr-only" for="search-input">Szukaj w kolekcji</label>
-            <input
-              id="search-input"
-              type="search"
-              placeholder="Tytuł, autor, ISBN, ISSN…"
-              autocomplete="off"
-              spellcheck="false"
-            />
-            <kbd class="search-shortcut" aria-hidden="true">⌘ K</kbd>
+        <section class="scanner-gallery scanner-shell" id="ekrany" aria-labelledby="scanner-gallery-title">
+          <h2 id="scanner-gallery-title">Zajrzyj do <em>aplikacji.</em></h2>
+          <div class="scanner-screens">
+            <figure>
+              <a href="./assets/start-iphone.webp" aria-label="Powiększ ekran pierwszego uruchomienia">
+                <img src="./assets/start-iphone.webp" width="750" height="1334" alt="Ekran startowy Półki na iPhonie z krótką instrukcją skanowania kodu." loading="lazy" />
+              </a>
+              <figcaption>
+                <h3>Dodaj książkę lub numer pisma</h3>
+                <p>Zeskanuj ISBN książki albo kod kreskowy czasopisma. Półka spróbuje uzupełnić opis. Brakujące dane możesz dopisać ręcznie.</p>
+              </figcaption>
+            </figure>
+            <figure>
+              <a href="./assets/biblioteka-iphone.webp" aria-label="Powiększ ekran kolekcji na iPhonie">
+                <img src="./assets/biblioteka-iphone.webp" width="644" height="1400" alt="Biblioteka na iPhonie z liczbą książek i czasopism oraz polem wyszukiwania." loading="lazy" />
+              </a>
+              <figcaption>
+                <h3>Pamiętaj, gdzie leży egzemplarz</h3>
+                <p>Przypisz egzemplarz do regału, półki albo pudła. Jeśli masz dwie kopie tej samej książki, możesz zapisać osobne miejsce dla każdej.</p>
+              </figcaption>
+            </figure>
+            <figure>
+              <a href="./assets/biblioteka-ipad.webp" aria-label="Powiększ ekran kolekcji na iPadzie">
+                <img src="./assets/biblioteka-ipad.webp" width="919" height="1400" alt="Biblioteka na iPadzie z książkami i czasopismami w dwóch kolumnach." loading="lazy" />
+              </a>
+              <figcaption>
+                <h3>Przeglądaj bibliotekę na iPadzie</h3>
+                <p>Szukaj po tytule, autorze, kodzie lub lokalizacji. W kolekcji prasy możesz sprawdzić, które numery danego tytułu już masz.</p>
+              </figcaption>
+            </figure>
           </div>
-
-          <div class="filter-row" role="group" aria-label="Filtry katalogu">
-            <label class="select-field">
-              <span>Typ</span>
-              <select id="type-filter">
-                <option value="all">Wszystkie</option>
-                <option value="book">Książki</option>
-                <option value="periodical">Prasa</option>
-              </select>
-            </label>
-            <label class="select-field select-location">
-              <span>Lokalizacja</span>
-              <select id="location-filter">
-                <option value="all">Wszędzie</option>
-              </select>
-            </label>
-            <label class="select-field">
-              <span>Sortowanie</span>
-              <select id="sort-select">
-                <option value="titleAsc">Tytuł A–Z</option>
-                <option value="addedDesc">Ostatnio dodane</option>
-                <option value="yearDesc">Rok wydania</option>
-                <option value="locationAsc">Lokalizacja</option>
-              </select>
-            </label>
-            <div class="view-switch" role="group" aria-label="Sposób wyświetlania">
-              <button class="view-button" id="grid-view-button" type="button" aria-pressed="false" aria-label="Okładki — widok katalogu" aria-controls="publication-grid">
-                <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="6" height="6" rx="1" /><rect x="14" y="4" width="6" height="6" rx="1" /><rect x="4" y="14" width="6" height="6" rx="1" /><rect x="14" y="14" width="6" height="6" rx="1" /></svg>
-                <span>Okładki</span>
-              </button>
-              <button class="view-button is-active" id="list-view-button" type="button" aria-pressed="true" aria-label="Lista — widok katalogu" aria-controls="publication-grid">
-                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6h11M9 12h11M9 18h11" /><circle cx="5" cy="6" r="1" /><circle cx="5" cy="12" r="1" /><circle cx="5" cy="18" r="1" /></svg>
-                <span>Lista</span>
-              </button>
-            </div>
-          </div>
-          </div>
-
-          <div class="results-meta">
-            <p id="results-count" aria-live="polite">Ładowanie katalogu…</p>
-            <button class="clear-filters" id="clear-filters-button" type="button" hidden>Wyczyść filtry</button>
-          </div>
-
-          <div class="publication-grid is-list" id="publication-grid" aria-busy="true"></div>
-
-          <div class="empty-state" id="empty-state" hidden>
-            <h3>Nie znaleźliśmy takiej publikacji</h3>
-            <p>Spróbuj krótszej frazy albo usuń część filtrów.</p>
-            <button class="button button-secondary" id="empty-clear-button" type="button">Wyczyść filtry</button>
-          </div>
-        </div>
-
-        <div id="periodicals-panel" role="tabpanel" aria-labelledby="periodicals-tab" hidden>
-          <div class="periodical-toolbar">
-            <div>
-              <p class="periodical-toolbar-title">Ciągłość kolekcji</p>
-              <p class="periodical-toolbar-description">Luki i powtórzenia są wyliczane lokalnie z bieżącego katalogu.</p>
-            </div>
-            <div class="periodical-filters" role="group" aria-label="Filtr serii prasy">
-              <button class="periodical-filter is-active" type="button" data-periodical-filter="all" aria-pressed="true">Wszystkie</button>
-              <button class="periodical-filter" type="button" data-periodical-filter="missing" aria-pressed="false">Luki</button>
-              <button class="periodical-filter" type="button" data-periodical-filter="duplicates" aria-pressed="false">Duplikaty</button>
-            </div>
-          </div>
-
-          <div class="results-meta periodical-results-meta">
-            <p id="periodical-results-count" aria-live="polite">Ładowanie serii…</p>
-            <p id="periodical-exclusions"></p>
-          </div>
-
-          <div class="periodical-series-grid" id="periodical-series-grid" aria-busy="true"></div>
-
-          <div class="empty-state" id="periodical-empty-state" hidden>
-            <h3>Brak serii dla tego filtra</h3>
-            <p>Dodaj numery prasy albo wybierz inny filtr.</p>
-          </div>
-        </div>
-      </section>
+          <p class="scanner-storage">Półka zapisuje kolekcję na urządzeniu. Możesz wyeksportować plik JSON, żeby zachować kopię lub przenieść kolekcję na inne urządzenie.</p>
+        </section>
+      </div>
     </main>
-
-    <footer>
-      <div>
-        <strong>Półka</strong>
-        <span>Statyczny podgląd kolekcji · format JSON v1</span>
-      </div>
-      <p id="storage-summary">Dane zapisane lokalnie.</p>
-    </footer>
-
-    <dialog class="detail-dialog" id="detail-dialog" aria-labelledby="detail-title">
-      <div class="dialog-shell">
-        <button class="dialog-close" id="detail-close-button" type="button" aria-label="Zamknij szczegóły">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18" /></svg>
-        </button>
-        <div id="detail-content"></div>
-      </div>
-    </dialog>
-
-    <dialog class="import-dialog" id="import-dialog" aria-labelledby="import-dialog-title">
-      <div class="dialog-shell import-shell">
-        <button class="dialog-close" id="import-close-button" type="button" aria-label="Anuluj import">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18" /></svg>
-        </button>
-        <div class="import-icon" aria-hidden="true">
-          <svg viewBox="0 0 24 24"><path d="M12 15V3m0 0 4 4m-4-4L8 7M5 10v9h14v-9" /></svg>
-        </div>
-        <p class="eyebrow">Plik gotowy</p>
-        <h2 id="import-dialog-title">Jak zaimportować kolekcję?</h2>
-        <p id="import-summary" class="import-summary"></p>
-        <div class="import-options">
-          <button class="import-option" id="replace-import-button" type="button">
-            <span class="option-title">Zastąp obecną</span>
-            <span>Usuń lokalny katalog i użyj wyłącznie danych z pliku.</span>
-          </button>
-          <button class="import-option recommended" id="merge-import-button" type="button">
-            <span class="option-kicker">Polecane</span>
-            <span class="option-title">Połącz kolekcje</span>
-            <span>Dodaj nowe egzemplarze i zaktualizuj rekordy o tych samych identyfikatorach.</span>
-          </button>
-        </div>
-        <button class="text-button dialog-cancel" id="import-cancel-button" type="button">Anuluj</button>
-      </div>
-    </dialog>
-
-    <div class="toast" id="toast" role="status" aria-live="polite" aria-atomic="true" hidden></div>
-
-    <noscript>
-      <div class="noscript-message">Ta strona potrzebuje JavaScriptu, aby wyszukiwać i importować kolekcję.</div>
-    </noscript>
   </body>
 </html>
