@@ -18,7 +18,7 @@
     <link rel="icon" type="image/png" sizes="32x32" href="./assets/app-icon-32.png" />
     <link rel="apple-touch-icon" sizes="180x180" href="./assets/apple-touch-icon.png" />
     <link rel="manifest" href="./manifest.webmanifest" />
-    <link rel="stylesheet" href="./styles.css" />
+    <link rel="stylesheet" href="./styles.css?v=20261114-gallery" />
   </head>
   <body>
     <a class="skip-link" href="#scanner-title">Przejdź do opisu aplikacji</a>
@@ -40,8 +40,11 @@
         <section class="scanner-hero scanner-shell" aria-labelledby="scanner-title">
           <div class="scanner-copy">
             <h1 id="scanner-title" tabindex="-1">Zeskanuj.<br />Zapisz.<br /><em>Znajdź.</em></h1>
-            <p>Skanuj ISBN i sprawdzaj, gdzie leżą Twoje książki.</p>
-            <a class="scanner-cta" href="#jak-dziala">Zobacz, jak działa <span aria-hidden="true">→</span></a>
+            <p>Zeskanuj kod książki lub czasopisma na iPhonie. Zapisz egzemplarz i sprawdź, gdzie go odłożyłeś.</p>
+            <div class="scanner-actions">
+              <a class="scanner-cta" href="#jak-dziala">Jak działa skanowanie <span aria-hidden="true">↓</span></a>
+              <a class="scanner-text-link" href="#ekrany">Zobacz ekrany</a>
+            </div>
           </div>
           <div class="scanner-visual">
             <img class="scanner-phone" src="./assets/skaner-isbn.webp" width="680" height="1376" alt="Makieta skanera Półki na iPhonie. Aparat rozpoznaje kod ISBN z tylnej okładki książki." fetchpriority="high" />
@@ -51,7 +54,7 @@
 
         <section class="scanner-guide scanner-shell" id="jak-dziala" aria-labelledby="scanner-guide-title">
           <div>
-            <h2 id="scanner-guide-title">Od kodu do <em>katalogu.</em></h2>
+            <h2 id="scanner-guide-title">Od kodu do <em>Twojej półki.</em></h2>
             <ol class="scanner-steps">
               <li><strong>Zeskanuj ISBN</strong><p>W aplikacji na iPhonie skieruj aparat na kod z tylnej okładki.</p></li>
               <li><strong>Zapisz egzemplarz</strong><p>Sprawdź podpowiedziane dane i wybierz miejsce, w którym odłożysz książkę.</p></li>
@@ -70,32 +73,38 @@
             <figure>
               <a href="./assets/start-iphone.webp" aria-label="Powiększ ekran pierwszego uruchomienia">
                 <img src="./assets/start-iphone.webp" width="750" height="1334" alt="Ekran startowy Półki na iPhonie z krótką instrukcją skanowania kodu." loading="lazy" />
+                <span aria-hidden="true">Powiększ zrzut ↗</span>
               </a>
               <figcaption>
-                <h3>Dodaj książkę lub numer pisma</h3>
+                <h3>Dodawanie publikacji</h3>
                 <p>Zeskanuj ISBN książki albo kod kreskowy czasopisma. Półka spróbuje uzupełnić opis. Brakujące dane możesz dopisać ręcznie.</p>
               </figcaption>
             </figure>
             <figure>
               <a href="./assets/biblioteka-iphone.webp" aria-label="Powiększ ekran kolekcji na iPhonie">
                 <img src="./assets/biblioteka-iphone.webp" width="644" height="1400" alt="Biblioteka na iPhonie z liczbą książek i czasopism oraz polem wyszukiwania." loading="lazy" />
+                <span aria-hidden="true">Powiększ zrzut ↗</span>
               </a>
               <figcaption>
-                <h3>Pamiętaj, gdzie leży egzemplarz</h3>
+                <h3>Biblioteka na iPhonie</h3>
                 <p>Przypisz egzemplarz do regału, półki albo pudła. Jeśli masz dwie kopie tej samej książki, możesz zapisać osobne miejsce dla każdej.</p>
               </figcaption>
             </figure>
             <figure>
               <a href="./assets/biblioteka-ipad.webp" aria-label="Powiększ ekran kolekcji na iPadzie">
                 <img src="./assets/biblioteka-ipad.webp" width="919" height="1400" alt="Biblioteka na iPadzie z książkami i czasopismami w dwóch kolumnach." loading="lazy" />
+                <span aria-hidden="true">Powiększ zrzut ↗</span>
               </a>
               <figcaption>
-                <h3>Przeglądaj bibliotekę na iPadzie</h3>
+                <h3>Biblioteka na iPadzie</h3>
                 <p>Szukaj po tytule, autorze, kodzie lub lokalizacji. W kolekcji prasy możesz sprawdzić, które numery danego tytułu już masz.</p>
               </figcaption>
             </figure>
           </div>
-          <p class="scanner-storage">Półka zapisuje kolekcję na urządzeniu. Możesz wyeksportować plik JSON, żeby zachować kopię lub przenieść kolekcję na inne urządzenie.</p>
+          <div class="scanner-storage">
+            <h3>Kolekcja na Twoim urządzeniu</h3>
+            <p>Półka przechowuje katalog lokalnie. Eksport do pliku JSON pozwala zachować kopię albo przenieść kolekcję na inne urządzenie.</p>
+          </div>
         </section>
       </div>
     </main>

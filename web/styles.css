@@ -2352,7 +2352,7 @@ dialog::backdrop {
 
 .scanner-copy p {
   max-width: 24ch;
-  margin: .92em 0 1.58em;
+  margin: .92em 0 1.25em;
   color: var(--scanner-muted);
   font-size: clamp(18px, 2.1vw, 31px);
   line-height: 1.32;
@@ -2360,7 +2360,7 @@ dialog::backdrop {
 }
 
 .scanner-copy .scanner-cta {
-  font-size: clamp(17px, 1.9vw, 27px);
+  font-size: clamp(16px, 1.6vw, 23px);
 }
 
 .scanner-visual {
@@ -2396,6 +2396,7 @@ dialog::backdrop {
   grid-template-columns: minmax(0, 1.6fr) minmax(220px, 1fr);
   align-items: center;
   gap: clamp(24px, 6vw, 90px);
+  border-block: 1px solid #32274c20;
   padding-block: clamp(28px, 5vw, 76px) clamp(46px, 7vw, 100px);
 }
 
@@ -2476,7 +2477,7 @@ dialog::backdrop {
 }
 
 .scanner-gallery {
-  padding-bottom: clamp(50px, 7vw, 100px);
+  padding-block: clamp(48px, 6vw, 88px) clamp(50px, 7vw, 100px);
 }
 
 .scanner-screens {
@@ -2492,9 +2493,16 @@ dialog::backdrop {
 
 .scanner-screens a {
   display: grid;
-  height: clamp(255px, 32vw, 450px);
+  grid-template-rows: minmax(0, 1fr) auto;
+  height: clamp(290px, 34vw, 465px);
   place-items: center;
-  border-radius: 18px;
+  gap: 12px;
+  padding: 16px 12px 12px;
+  border: 1px solid #fff9;
+  border-radius: 22px;
+  background: #fff7;
+  color: var(--scanner-ink);
+  text-decoration: none;
 }
 
 .scanner-screens img {
@@ -2525,7 +2533,21 @@ dialog::backdrop {
 }
 
 .scanner-storage {
-  max-width: 62ch;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
+  gap: 12px 24px;
+  padding-block: 24px;
+  border-top: 1px solid #32274c20;
+}
+
+.scanner-storage h3,
+.scanner-storage p {
+  margin: 0;
+}
+
+.scanner-storage h3 {
+  color: var(--scanner-ink);
+  font-size: 1.15rem;
 }
 
 @media (max-width: 760px) {
@@ -2540,7 +2562,11 @@ dialog::backdrop {
   }
 
   .scanner-screens a {
-    height: 375px;
+    height: clamp(300px, 105vw, 420px);
+  }
+
+  .scanner-storage {
+    grid-template-columns: 1fr;
   }
 }
 
@@ -2548,4 +2574,29 @@ dialog::backdrop {
   .scanner-screens img {
     transition: none;
   }
+}
+
+.scanner-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 18px;
+}
+
+.scanner-text-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  color: var(--scanner-violet);
+  font-weight: 700;
+  text-underline-offset: .2em;
+}
+
+.scanner-screens a span {
+  font-size: .875rem;
+  font-weight: 700;
+}
+
+.scanner-screens a:hover span {
+  text-decoration: underline;
 }
